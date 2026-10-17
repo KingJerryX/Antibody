@@ -44,6 +44,8 @@ export interface ScanReport {
   findings: Finding[];
   /** Checks that ran and found nothing, so the report can show "passed". */
   passed: string[];
+  /** Checks that did not run. Kept out of `passed` so a skipped probe does not look clean. */
+  skipped?: string[];
   error?: string;
 }
 

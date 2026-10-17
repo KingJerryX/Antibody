@@ -3,175 +3,265 @@
 import type { Finding, ScanReport, Severity } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
-import { Card, Icon, SEVERITY_ORDER, SEVERITY_STYLE, SeverityPill } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { SEVERITY_ORDER } from "@/components/ui";
 import { usePoll } from "@/components/usePoll";
 
 const WEIGHT: Record<Severity, number> = { critical: 35, high: 20, medium: 8, low: 3 };
 
-function score(findings: Finding[]) {
+type Health = { orchestrator: "up" | "down" };
+
+function scoreOf(findings: Finding[]) {
   return Math.max(0, 100 - findings.reduce((n, f) => n + WEIGHT[f.severity], 0));
 }
 
-function verdict(s: number) {
-  if (s >= 85) return { label: "Looking good", color: "text-mint", stroke: "#5cf2b0" };
-  if (s >= 55) return { label: "Needs work", color: "text-amber-200", stroke: "#fbbf24" };
-  return { label: "At risk", color: "text-red-300", stroke: "#ef4444" };
+function joinAnd(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+/** Evidence is "Missing: A, B, C". The report turns that list into a sentence. */
+function headerNames(f: Finding): string[] | null {
+  if (f.kind !== "missing_security_headers") return null;
+  const line = f.evidence
+    .split("\n")
+    .map((s) => s.trim())
+    .find((s) => s.startsWith("Missing:"));
+  if (!line) return [];
+  return line
+    .slice("Missing:".length)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function headline(findings: Finding[]) {
+  const n = findings.length;
+  if (n === 0) return "No issues found";
+  const mild = findings.every((f) => f.severity === "low");
+  if (n === 1) return mild ? "One improvement recommended" : "One issue to fix";
+  return mild ? `${n} improvements recommended` : `${n} issues to fix`;
+}
+
+const HEADERS_LEDE =
+  "The deployed app is missing browser protection headers. This finding is low severity, but addressing it closes avoidable gaps.";
+const HEADERS_WHY =
+  "These headers help browsers resist clickjacking and content sniffing. A suitable Content Security Policy adds another layer of protection.";
+const HEADERS_FIX = "Set the response headers in Next.js, deploy, and scan again. Tailor the policy to your app's resources.";
+
+/** Older scans stored the generic header copy. New scans already carry these sentences from the scanner. */
+function headersLede(f: Finding) {
+  return f.plainEnglish.startsWith("Your site isn't sending") ? HEADERS_LEDE : f.plainEnglish;
+}
+
+function lede(findings: Finding[]) {
+  if (findings.length === 0) return "We didn't find any of the usual holes. The live shield still watches the app.";
+  if (findings.length === 1 && findings[0].kind === "missing_security_headers") return headersLede(findings[0]);
+  if (findings.length === 1) return findings[0].plainEnglish;
+  return "Start with the highest severity. Each finding includes what we saw, why it matters, and a fix you can approve.";
+}
+
+function statusLine(findings: Finding[], s: number) {
+  const n = findings.length;
+  if (n === 0) return "Overall status is strong. Every check we ran came back clean.";
+  const onlyLow = findings.every((f) => f.severity === "low");
+  if (s >= 85 && onlyLow && n === 1) return "Overall status is strong. One low severity finding remains.";
+  if (s >= 85 && onlyLow) return `Overall status is strong. ${n} low severity findings remain.`;
+  if (s >= 85) return `Overall status is strong. ${n} finding${n === 1 ? "" : "s"} still open.`;
+  if (s >= 55) return `Needs work. ${n} finding${n === 1 ? "" : "s"} to address.`;
+  return `At risk. ${n} finding${n === 1 ? "" : "s"} to address before this is safe to leave up.`;
+}
+
+function present(f: Finding) {
+  const names = headerNames(f);
+  if (names) {
+    const list = joinAnd(names);
+    return {
+      title: "Protective HTTP headers",
+      meta: names.length ? `${names.length} missing` : undefined,
+      observed: names.length
+        ? `${list} ${names.length === 1 ? "was" : "were"} absent from the live response.`
+        : f.plainEnglish,
+      why: f.impact.startsWith("Makes clickjacking") ? HEADERS_WHY : f.impact,
+      fix: f.fixHint.startsWith("Add these response headers") ? HEADERS_FIX : f.fixHint,
+    };
+  }
+  const file = f.location?.file && `${f.location.file}${f.location.line ? `:${f.location.line}` : ""}`;
+  return {
+    title: f.title,
+    meta: file || undefined,
+    observed: f.plainEnglish,
+    why: f.impact,
+    fix: f.fixHint,
+  };
 }
 
 export function ReportView() {
   const { id } = useParams<{ id: string }>();
-  const { data: scan, error } = usePoll<ScanReport>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
+  const { data, error } = usePoll<ScanReport>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
+  const { data: health } = usePoll<Health>("/api/health", 10_000);
+  const [fallback, setFallback] = useState<ScanReport>();
+  const [checked, setChecked] = useState(false);
+
+  // Filled by the scan form on Vercel, where the next request may not see the file the scan wrote.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(`antibody-scan:${id}`);
+      if (raw) setFallback(JSON.parse(raw) as ScanReport);
+    } catch {
+      /* a bad cache just means we wait on the poll */
+    }
+    setChecked(true);
+  }, [id]);
+
+  const scan = data ?? fallback;
 
   if (!scan) {
     return (
-      <div className="mx-auto max-w-5xl px-5 py-16">
-        <p className="text-slate-400">{error ? `Couldn't load this report: ${error}` : "Loading report…"}</p>
+      <div className="ab">
+        <div className="wrap page">
+          <p className="sub">{checked && error ? `Couldn't load this report: ${error}` : "Loading report…"}</p>
+        </div>
       </div>
     );
   }
 
   const host = URL.parse(scan.targetUrl)?.host ?? scan.targetUrl;
+  const findings = [...scan.findings].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-12">
-      <div className="mb-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-        <span>Security report</span>
-        <span aria-hidden="true">/</span>
-        <span className="font-mono text-slate-300">{host}</span>
-        <Link href={`/connect/${scan.projectId}`} className="ml-auto inline-flex items-center gap-1 text-mint hover:underline">
-          Set up alerts <Icon name="arrow" className="h-3.5 w-3.5" />
-        </Link>
-        <Link href={`/live/${scan.projectId}`} className="inline-flex items-center gap-1 text-mint hover:underline">
-          Live view <Icon name="arrow" className="h-3.5 w-3.5" />
-        </Link>
+    <div className="ab">
+      <div className="wrap page view">
+        <div className="report-top">
+          <nav className="crumb" aria-label="Breadcrumb">
+            <Link href="/">Home</Link>
+            <span aria-hidden="true">/</span>
+            <span>Report</span>
+            <span className="host">{host}</span>
+          </nav>
+          <span className="report-links">
+            <Link href={`/connect/${scan.projectId}`}>Set up alerts</Link>
+            <Link href={`/live/${scan.projectId}`}>Live view</Link>
+          </span>
+        </div>
+
+        {scan.status === "running" ? (
+          <Running host={host} />
+        ) : scan.status === "error" ? (
+          <Failed scan={scan} />
+        ) : (
+          <Done scan={scan} findings={findings} offline={health?.orchestrator === "down"} />
+        )}
       </div>
-
-      {scan.status === "running" ? <Running host={host} /> : scan.status === "error" ? <Failed scan={scan} /> : <Summary scan={scan} />}
-
-      {scan.status === "done" && (
-        <>
-          {SEVERITY_ORDER.map((sev) => {
-            const group = scan.findings.filter((f) => f.severity === sev);
-            if (!group.length) return null;
-            return (
-              <section key={sev} aria-labelledby={`sev-${sev}`} className="mt-10">
-                <h2 id={`sev-${sev}`} className={`mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-widest ${SEVERITY_STYLE[sev].text}`}>
-                  {sev} <span className="text-slate-500">({group.length})</span>
-                </h2>
-                <ul className="space-y-4">
-                  {group.map((f) => (
-                    <li key={f.id}>
-                      <FindingCard finding={f} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
-          {scan.passed.length > 0 && (
-            <section aria-labelledby="passed" className="mt-10">
-              <h2 id="passed" className="mb-4 text-sm font-semibold uppercase tracking-widest text-mint">
-                Passed <span className="text-slate-500">({scan.passed.length})</span>
-              </h2>
-              <Card className="p-5">
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {scan.passed.map((p) => (
-                    <li key={p} className="flex items-start gap-2 text-sm text-slate-300">
-                      <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-mint" />
-                      {p}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </section>
-          )}
-        </>
-      )}
     </div>
   );
 }
 
 function Running({ host }: { host: string }) {
   return (
-    <Card className="mt-4 flex items-center gap-5 p-8">
-      <span className="relative flex h-12 w-12 shrink-0 items-center justify-center" aria-hidden="true">
-        <span className="absolute inset-0 animate-ping rounded-full bg-mint/20" />
-        <Icon name="search" className="h-7 w-7 text-mint" />
-      </span>
-      <div role="status" aria-live="polite">
-        <h1 className="text-2xl font-semibold text-white">Scanning {host}…</h1>
-        <p className="mt-1 text-slate-400">Checking for open databases, leaked keys, unprotected routes and missing limits. Usually about 30 seconds.</p>
-      </div>
-    </Card>
+    <div className="run" role="status" aria-live="polite">
+      <h1 className="display">Scanning {host}</h1>
+      <p>Checking for open databases, leaked keys, unprotected routes, and missing limits. Usually about 30 seconds.</p>
+    </div>
   );
 }
 
 function Failed({ scan }: { scan: ScanReport }) {
   return (
-    <Card className="mt-4 border-red-500/40 p-8">
-      <h1 className="text-2xl font-semibold text-white">The scan didn&apos;t finish</h1>
-      <p className="mt-2 text-red-200">{scan.error ?? "Unknown error"}</p>
-      <Link href="/#scan" className="mt-4 inline-block text-mint hover:underline">Try another scan</Link>
-    </Card>
+    <div className="run">
+      <h1 className="display">The scan didn&apos;t finish</h1>
+      <p>{scan.error ?? "Unknown error"}</p>
+      <div className="actions">
+        <Link className="btn btn-light" href="/#scan">
+          Try another scan
+        </Link>
+      </div>
+    </div>
   );
 }
 
-function Summary({ scan }: { scan: ScanReport }) {
-  const s = score(scan.findings);
-  const v = verdict(s);
-  const r = 52;
-  const c = 2 * Math.PI * r;
+function Done({ scan, findings, offline }: { scan: ScanReport; findings: Finding[]; offline: boolean }) {
+  const s = scoreOf(findings);
+  const tone = s >= 85 ? "" : s >= 55 ? "warn" : "bad";
   return (
-    <Card className="animate-rise mt-4 grid gap-8 p-8 sm:grid-cols-[auto_1fr] sm:items-center">
-      <div className="relative mx-auto h-36 w-36">
-        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-hidden="true">
-          <circle cx="60" cy="60" r={r} fill="none" stroke="#1f2630" strokeWidth="10" />
-          <circle cx="60" cy="60" r={r} fill="none" stroke={v.stroke} strokeWidth="10" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - s / 100)} className="ring-fill" style={{ "--ring-empty": c } as React.CSSProperties} />
-        </svg>
-        <div className="absolute inset-0 grid place-items-center text-center">
-          <div>
-            <div className="text-4xl font-semibold tracking-tight tabular-nums text-white">{s}</div>
-            <div className="text-xs text-slate-400">out of 100</div>
+    <div className="report">
+      <aside className="score-card" aria-label="Security score">
+        <p className="kicker">Security score</p>
+        <p className={`figure ${tone}`}>{s}</p>
+        <p className="status-line">{statusLine(findings, s)}</p>
+        <div className="score-rows">
+          <div className="row">
+            <span>Open findings</span>
+            <b>{findings.length}</b>
           </div>
+          <details>
+            <summary>
+              <span>Passed checks</span>
+              <b>{scan.passed.length}</b>
+            </summary>
+            {scan.passed.length > 0 && (
+              <ul className="score-list">
+                {scan.passed.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            )}
+          </details>
+          {(scan.skipped?.length ?? 0) > 0 && (
+            <details>
+              <summary>
+                <span>Not run</span>
+                <b>{scan.skipped!.length}</b>
+              </summary>
+              <ul className="score-list">
+                {scan.skipped!.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
-      </div>
-      <div>
-        <h1 className={`text-3xl font-semibold tracking-tight ${v.color}`}>{v.label}</h1>
-        <p className="mt-2 text-slate-300">
-          {scan.findings.length === 0
-            ? "We didn't find any of the usual holes. The live shield still has your back."
-            : `We found ${scan.findings.length} issue${scan.findings.length === 1 ? "" : "s"}. Start at the top: each one has a one-click fix.`}
-        </p>
-        <dl className="mt-5 flex flex-wrap gap-3">
-          {SEVERITY_ORDER.map((sev) => (
-            <div key={sev} className="rounded-xl border border-line px-4 py-2">
-              <dt className={`text-xs uppercase tracking-wide ${SEVERITY_STYLE[sev].text}`}>{sev}</dt>
-              <dd className="text-2xl font-semibold tabular-nums text-white">{scan.findings.filter((f) => f.severity === sev).length}</dd>
-            </div>
-          ))}
-          <div className="rounded-xl border border-line px-4 py-2">
-            <dt className="text-xs uppercase tracking-wide text-mint">passed</dt>
-            <dd className="text-2xl font-semibold tabular-nums text-white">{scan.passed.length}</dd>
-          </div>
-        </dl>
-      </div>
-    </Card>
+      </aside>
+
+      <section className="scan-summary" aria-labelledby="scan-summary">
+        <p className="kicker">Scan summary</p>
+        <h1 id="scan-summary">{headline(findings)}</h1>
+        <p className="lede">{lede(findings)}</p>
+        {findings.map((f) => (
+          <FindingBlock key={f.id} finding={f} offline={offline} hideObserved={findings.length === 1 && f.plainEnglish === lede(findings)} />
+        ))}
+      </section>
+    </div>
   );
 }
 
-function FindingCard({ finding: f }: { finding: Finding }) {
+function FindingBlock({ finding: f, offline, hideObserved }: { finding: Finding; offline: boolean; hideObserved: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showEvidence, setShowEvidence] = useState(false);
+  const view = present(f);
+  const sameAsLede = hideObserved && view.observed === f.plainEnglish;
 
   async function fix() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/fixes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ findingId: f.id }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Couldn't start the fix");
+      const res = await fetch("/api/fixes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ findingId: f.id, finding: f }),
+      });
+      const text = await res.text();
+      let data: { error?: string; id?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; id?: string }) : {};
+      } catch {
+        throw new Error("Couldn't start the fix");
+      }
+      if (!res.ok || !data.id) throw new Error(data.error ?? "Couldn't start the fix");
+      sessionStorage.setItem(`antibody-fix:${data.id}`, text);
       router.push(`/fix/${data.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start the fix");
@@ -179,57 +269,49 @@ function FindingCard({ finding: f }: { finding: Finding }) {
     }
   }
 
-  const file = f.location?.file && `${f.location.file}${f.location.line ? `:${f.location.line}` : ""}`;
-  const where = [f.detectedBy === "code_audit" ? undefined : f.location?.url, file].filter(Boolean).join(" · ");
-  // Live probes prove a hole; Semgrep only shows where it is in the code.
-  const proof =
-    f.detectedBy === "code_audit"
-      ? { label: "Found in code", style: "border-slate-500/40 text-slate-300" }
-      : { label: file ? "Proven live · found in code" : "Proven on your live app", style: "border-mint/50 text-mint" };
-
   return (
-    <Card className="relative overflow-hidden p-6">
-      <span className={`absolute inset-y-0 left-0 w-1 ${SEVERITY_STYLE[f.severity].bar}`} aria-hidden="true" />
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <SeverityPill severity={f.severity} />
-            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${proof.style}`}>{proof.label}</span>
-            {where && <span className="truncate font-mono text-xs text-slate-500">{where}</span>}
-          </div>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-white">{f.title}</h3>
-        </div>
-        <button
-          onClick={fix}
-          disabled={busy}
-          className="press inline-flex shrink-0 items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110 disabled:opacity-60"
-        >
-          <Icon name="wrench" className="h-4 w-4" />
-          {busy ? "Starting…" : "Fix it"}
-        </button>
+    <article className="finding-block">
+      <div className="finding-row">
+        <span className={`sev-pill ${f.severity}`}>{f.severity}</span>
+        <h2>{view.title}</h2>
+        {view.meta && <span className="meta">{view.meta}</span>}
       </div>
-      <p className="mt-3 text-slate-200">{f.plainEnglish}</p>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">What an attacker could do</h4>
-          <p className="mt-1 text-sm text-slate-300">{f.impact}</p>
-        </div>
-        <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">How to fix</h4>
-          <p className="mt-1 text-sm text-slate-300">{f.fixHint}</p>
-        </div>
-      </div>
-      {f.evidence && (
-        <div className="mt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Evidence (secrets redacted)</h4>
-          <pre className="mt-1 overflow-x-auto rounded-lg border border-line bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-300">{f.evidence}</pre>
+      {!sameAsLede && (
+        <div className="brief">
+          <h3>What we observed</h3>
+          <p>{view.observed}</p>
         </div>
       )}
+      <div className="brief">
+        <h3>Why it matters</h3>
+        <p>{view.why}</p>
+      </div>
+      <div className="brief">
+        <h3>Recommended fix</h3>
+        <p>{view.fix}</p>
+      </div>
+      <div className="report-actions">
+        {f.evidence && (
+          <button type="button" className="btn btn-ghost" aria-expanded={showEvidence} onClick={() => setShowEvidence((v) => !v)}>
+            {showEvidence ? "Hide evidence" : "View evidence"}
+          </button>
+        )}
+        <button
+          type="button"
+          className={offline ? "btn btn-offline" : "btn btn-lime"}
+          onClick={fix}
+          disabled={busy || offline}
+          title={offline ? 'Start it with "npm run dev:orchestrator"' : undefined}
+        >
+          {busy ? "Starting…" : offline ? "Automatic fix offline" : "Fix it"}
+        </button>
+      </div>
+      {showEvidence && <pre className="evidence">{f.evidence}</pre>}
       {error && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+        <p role="alert" className="alert">
           {error}
         </p>
       )}
-    </Card>
+    </article>
   );
 }
