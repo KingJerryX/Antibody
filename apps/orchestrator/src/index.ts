@@ -1,7 +1,7 @@
 // Orchestrator: plain node:http on :3001. Routes are the contract in AGENTS.md / the web app's proxy.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { logActivity, memoryFor, newId, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
-import { integrations, logIntegrations, maskHandle } from "./integrations.ts";
+import { isGithubConnected, logActivity, memoryFor, newId, openPullRequest, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
+import { integrations, logIntegrations, maskHandle, toE164 } from "./integrations.ts";
 import { createMessenger, MockMessenger } from "./messenger.ts";
 import { canAct, handleText, ownerOf, projectFor } from "./conversation.ts";
 import { createFixer, DroidFixer } from "./fixer.ts";
@@ -26,6 +26,8 @@ messenger.start(async ({ from, text }) => {
     pendingCalls.delete(projectId);
   }
   await messenger.send(from, handleText(projectId, from, body), { projectId });
+  // A "YES fix_…" text approves inside handleText; open the PR for anything newly approved.
+  for (const f of readDb().fixes) if (f.projectId === projectId && f.status === "approved" && !f.prUrl && !f.prNote) void openPrFor(f.id);
 });
 
 // ---------- notify (interrupt budget) ----------
@@ -111,6 +113,45 @@ async function startFix(findingId: string): Promise<FixProposal | undefined> {
   return fix.author === "mock" ? done : fix;
 }
 
+// ---------- pull requests ----------
+const OPENING_PR = "Opening a pull request…";
+const openingPrs = new Set<string>();
+
+/**
+ * After a fix is approved (web or text): a project with a connected repo gets a real pull request.
+ * Antibody never merges; the owner merges in GitHub. Safe to call repeatedly.
+ */
+async function openPrFor(fixId: string) {
+  const db = readDb();
+  const fix = db.fixes.find((f) => f.id === fixId);
+  if (!fix || fix.status !== "approved" || fix.prUrl || openingPrs.has(fixId)) return;
+  const project = db.projects.find((p) => p.id === fix.projectId);
+  if (!project || !isGithubConnected(project)) {
+    saveFix(fixId, { prNote: "GitHub isn't connected, so there's no pull request. Connect it on the setup page." });
+    return;
+  }
+  if (fix.author !== "droid") {
+    saveFix(fixId, { prNote: "Mock fixes aren't opened as pull requests. Add a Factory key for real fixes." });
+    return;
+  }
+  openingPrs.add(fixId);
+  saveFix(fixId, { prNote: OPENING_PR });
+  try {
+    const url = await openPullRequest(project, fix, findFinding(fix.findingId)?.title ?? "security fix");
+    saveFix(fixId, { prUrl: url, prNote: undefined });
+    logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request opened for ${fixId}`, detail: url, channel: "github", refId: fixId });
+    const to = ownerOf(fix.projectId);
+    if (to) await messenger.send(to, `Pull request opened on ${project.repo}: ${url} Review it and merge in GitHub when you're happy.`, { projectId: fix.projectId, refId: fixId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[github] PR for ${fixId} failed:`, msg);
+    saveFix(fixId, { prNote: `Couldn't open the pull request: ${msg.slice(0, 200)}` });
+    logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request for ${fixId} failed`, detail: msg.slice(0, 300), channel: "github", refId: fixId });
+  } finally {
+    openingPrs.delete(fixId);
+  }
+}
+
 // ---------- http ----------
 async function readJson(req: IncomingMessage): Promise<{ raw: string; json: Record<string, unknown> }> {
   let raw = "";
@@ -131,8 +172,7 @@ const send = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-const str = (v: unknown, max = 2000) => (typeof v === "string" && v.trim() ? v.slice(0, max) : undefined);
-const SEVERITIES = ["critical", "high", "medium", "low"];
+const str = (v: unknown, max = 2000) => (typeof v === "string" && v.trim() ? v.slice(0, max) : undefined);const SEVERITIES = ["critical", "high", "medium", "low"];
 
 async function route(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -155,6 +195,21 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, await notify(projectId, severity as Severity, text, json.active === true, str(json.refId, 100)));
   }
 
+  // Setup page: register a user's phone with Photon so it can text the agent, and remember which line it uses.
+  if (path === "/photon/register") {
+    const projectId = str(json.projectId, 100);
+    const handle = toE164(str(json.phone, 40));
+    if (!projectId || !readDb().projects.some((p) => p.id === projectId)) return send(res, 404, { error: "Unknown project" });
+    if (!handle) return send(res, 400, { error: "Enter a phone number with area code, like +1 617 555 0123." });
+    const line = await messenger.registerSender(handle);
+    updateDb((db) => {
+      const m = memoryFor(db, projectId);
+      m.phoneLines = [...(m.phoneLines ?? []).filter((r) => r.handle !== handle), { handle, line }];
+    });
+    console.log(`[photon] registered ${maskHandle(handle)} -> line ${maskHandle(line)} for ${projectId}`);
+    return send(res, 200, { handle, line, mode: messenger.mode });
+  }
+
   if (path === "/fixes") {
     const findingId = str(json.findingId, 100);
     if (!findingId) return send(res, 400, { error: "need findingId" });
@@ -171,7 +226,9 @@ async function route(req: IncomingMessage, res: ServerResponse) {
       if (fix.status !== "ready") return send(res, 409, { error: `fix is ${fix.status}, only ready fixes can be approved` });
       logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} approved on the review page`, detail: "Antibody never merges; merge the PR in GitHub.", channel: "web", refId: id });
       updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Approved ${id}` }));
-      return send(res, 200, saveFix(id, { status: "approved" }));
+      const approved = saveFix(id, { status: "approved" });
+      void openPrFor(id);
+      return send(res, 200, approved);
     }
     if (action === "reject") {
       if (!["ready", "drafting"].includes(fix.status)) return send(res, 409, { error: `fix is ${fix.status}` });

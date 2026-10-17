@@ -1,6 +1,6 @@
 import { after } from "next/server";
-import { logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
-import { auditCode, mergeFindings, scanUrl } from "@antibody/scanner";
+import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
+import { auditCode, auditGithubRepo, mergeFindings, scanUrl } from "@antibody/scanner";
 import { repoDirFor, verifiedDomains } from "@/lib/server";
 
 function parseTarget(raw: unknown): URL | null {
@@ -40,10 +40,11 @@ export async function POST(request: Request) {
     let report: ScanReport;
     try {
       // Live probes and the Semgrep code audit run side by side, then merge: proof from one, file:line from the other.
+      // Code comes from the project's connected GitHub repo, else a local folder (ANTIBODY_REPOS).
       const repoDir = repoDirFor(target.host);
       const [result, audit] = await Promise.all([
         scanUrl(target.href, { projectId: project.id, verifiedDomains: domains }),
-        repoDir ? auditCode(repoDir, project.id) : undefined,
+        isGithubConnected(project) ? auditGithubRepo(project) : repoDir ? auditCode(repoDir, project.id) : undefined,
       ]);
       report = { ...result, id: scanId, projectId: project.id, status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
       if (audit && report.status === "done") {

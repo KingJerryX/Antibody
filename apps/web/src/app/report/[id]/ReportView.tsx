@@ -39,7 +39,10 @@ export function ReportView() {
         <span>Security report</span>
         <span aria-hidden="true">/</span>
         <span className="font-mono text-slate-300">{host}</span>
-        <Link href={`/live/${scan.projectId}`} className="ml-auto inline-flex items-center gap-1 text-mint hover:underline">
+        <Link href={`/connect/${scan.projectId}`} className="ml-auto inline-flex items-center gap-1 text-mint hover:underline">
+          Set up alerts <Icon name="arrow" className="h-3.5 w-3.5" />
+        </Link>
+        <Link href={`/live/${scan.projectId}`} className="inline-flex items-center gap-1 text-mint hover:underline">
           Live view <Icon name="arrow" className="h-3.5 w-3.5" />
         </Link>
       </div>

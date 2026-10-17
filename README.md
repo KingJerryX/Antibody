@@ -61,5 +61,5 @@ Without `XAI_API_KEY`, Antigen falls back to the scripted attacks in `attacks/` 
 | Photon 2.0 (iMessage, voice) | Mock: messages logged to the activity feed | [app.beta.photon.codes](https://app.beta.photon.codes) → project → API key, iMessage line |
 | Chalk (shield features, evals) | Local in-memory counters | `chalk login`, then `chalk init` in `chalk/` |
 | Factory Droid SDK (fixer) | Mock fixer with canned diffs | `FACTORY_API_KEY` from Factory settings |
-| GitHub App (PR checks) | Disabled | Create a GitHub App, set `GITHUB_*` vars |
+| GitHub (repo audit, fix pull requests) | Code audit uses the local folders in `ANTIBODY_REPOS`; approvals open no PR | Setup page (`/connect/<project>`) → Connect GitHub: creates the Antibody GitHub App once, then installs it on a repo |
 | xAI Grok (Antigen red team) | Scripted attacks from `attacks/` | `XAI_API_KEY` from [console.x.ai](https://console.x.ai) |

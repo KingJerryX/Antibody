@@ -1,7 +1,7 @@
 import type { Finding, FindingKind, ScanReport, Severity } from "@antibody/core";
 import { newId } from "@antibody/core";
 import { findSupabase, redact, scanSecrets } from "./secrets.ts";
-export { auditCode, mergeFindings } from "./code-audit.ts";
+export { auditCode, auditGithubRepo, mergeFindings } from "./code-audit.ts";
 
 export interface ScanOpts {
   projectId: string;

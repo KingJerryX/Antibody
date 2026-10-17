@@ -12,7 +12,8 @@ function verifySignature(body: string, signature: string | undefined, secret: st
 
 /** Returns an HTTP status. */
 export function handleGithubWebhook(body: string, headers: Record<string, string | string[] | undefined>, projectId: string): number {
-  if (!isLive("github")) return 404;
+  // Webhooks stay off until there's a public URL and a secret (localhost can't receive them).
+  if (!isLive("github") || !process.env.GITHUB_WEBHOOK_SECRET) return 404;
   if (!verifySignature(body, headers["x-hub-signature-256"] as string | undefined, process.env.GITHUB_WEBHOOK_SECRET!)) return 401;
   const event = headers["x-github-event"];
   if (event !== "push" && event !== "pull_request") return 204;

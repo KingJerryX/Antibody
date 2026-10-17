@@ -36,7 +36,11 @@ export function FixView() {
   const { data: fix, error, setData, refresh } = usePoll<FixProposal>(
     `/api/fixes/${id}`,
     2000,
-    (f) => f.status === "drafting" || f.checks.some((c) => c.status === "pending"),
+    // Also keep polling while a just-approved fix waits for its pull request.
+    (f) =>
+      f.status === "drafting" ||
+      f.checks.some((c) => c.status === "pending") ||
+      (f.status === "approved" && !f.prUrl && (!f.prNote || f.prNote.startsWith("Opening"))),
   );
 
   if (!fix) {
@@ -163,7 +167,7 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
       if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
       onUpdate(data?.id ? data : undefined);
       if (action === "revise") setInstructions("");
-      setNote({ ok: true, text: action === "approve" ? "Approved. Antibody opens the pull request; the permanent merge happens in GitHub." : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
+      setNote({ ok: true, text: action === "approve" ? "Approved. With GitHub connected, Antibody opens a pull request in a few seconds. You merge it in GitHub." : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
     } catch (err) {
       setNote({ ok: false, text: err instanceof Error ? err.message : "Request failed" });
     } finally {
@@ -181,6 +185,7 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
           <Icon name="x" className="h-4 w-4" /> {busy === "reject" ? "Rejecting…" : "Reject"}
         </button>
         {fix.prUrl && <a href={fix.prUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">View pull request</a>}
+        {fix.prNote && !fix.prUrl && <span className="text-sm text-slate-400">{fix.prNote}</span>}
         {fix.previewUrl && <a href={fix.previewUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">Open preview</a>}
       </div>
       <p className="mt-3 text-sm text-slate-400">Approving opens a pull request. Permanent merges happen in GitHub, so you can always roll back.</p>

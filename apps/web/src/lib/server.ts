@@ -5,6 +5,9 @@ import { readDb, repoRoot } from "@antibody/core";
 
 export const ORCHESTRATOR_URL = process.env.ANTIBODY_ORCHESTRATOR_URL || "http://localhost:3001";
 
+/** This site's own base URL (GitHub redirects back to it). */
+export const webUrl = () => (process.env.ANTIBODY_WEB_URL || "http://localhost:3000").replace(/\/$/, "");
+
 export function verifiedDomains(): string[] {
   return (process.env.ANTIBODY_VERIFIED_DOMAINS ?? "")
     .split(",")

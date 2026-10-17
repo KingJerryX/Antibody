@@ -1,9 +1,10 @@
 // Static half of a scan: Semgrep with Antibody's rules (semgrep/antibody.yml) over the app's source.
 // The live half (index.ts) proves holes on the running app; mergeFindings joins the two.
 import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
-import { newId, repoRoot, type Finding, type FindingKind, type Severity } from "@antibody/core";
+import { cloneProjectRepo, newId, repoRoot, type Finding, type FindingKind, type Project, type Severity } from "@antibody/core";
 
 const run = promisify(execFile);
 const AUDIT_TIMEOUT_MS = 120_000;
@@ -70,6 +71,23 @@ export async function auditCode(repoDir: string, projectId: string): Promise<{ f
     };
   });
   return { findings, note: `Code audit (Semgrep): ${findings.length} issue${findings.length === 1 ? "" : "s"} in source` };
+}
+
+/** Audits a fresh clone of the project's connected GitHub repo, then deletes the clone. */
+export async function auditGithubRepo(project: Project): Promise<{ findings: Finding[]; note: string }> {
+  const scratch = join(repoRoot(), ".antibody-work");
+  mkdirSync(scratch, { recursive: true });
+  const work = mkdtempSync(join(scratch, "scan-"));
+  try {
+    const dir = join(work, "repo");
+    await cloneProjectRepo(project, dir);
+    const audit = await auditCode(dir, project.id);
+    return { ...audit, note: `${audit.note} (${project.repo} on GitHub)` };
+  } catch (err) {
+    return { findings: [], note: `Code audit skipped: couldn't clone ${project.repo} (${(err as Error).message.split("\n")[0]})` };
+  } finally {
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  }
 }
 
 /** "/api/users/[id]" -> /^\/api\/users\/[^/]+$/ */

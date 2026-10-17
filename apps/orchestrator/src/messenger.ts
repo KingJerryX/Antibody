@@ -17,6 +17,8 @@ export interface SendOpts {
 export interface Messenger {
   readonly mode: "live" | "mock";
   send(to: string, text: string, opts: SendOpts): Promise<void>;
+  /** Lets `handle` text the agent; returns the Antibody number that handle should text. */
+  registerSender(handle: string): Promise<string>;
   start(onInbound: InboundHandler): void;
   stop(): void;
 }
@@ -43,6 +45,10 @@ export class MockMessenger implements Messenger {
     this.onInbound = onInbound;
   }
   stop() {}
+  async registerSender(handle: string) {
+    console.log(`[mock imessage] would register ${maskHandle(handle)} with Photon`);
+    return process.env.PHOTON_AGENT_HANDLE?.trim() || "+15555550199";
+  }
   /** Mock mode's "phone": POST /inbound lands here. */
   async simulateInbound(msg: Inbound) {
     await this.onInbound?.(msg);
@@ -97,6 +103,24 @@ export class PhotonMessenger implements Messenger {
       },
     });
     logOut(this.mode, to, text, opts);
+  }
+
+  /**
+   * Photon's shared iMessage lines only accept texts from handles registered on the project (one seat each,
+   * 25 in shared mode). Reuses an existing registration; Photon picks the line for a new one.
+   */
+  async registerSender(handle: string) {
+    const path = { id: this.projectId };
+    const { assignments } = await this.photon.projects.platforms.imessage.assignments.list({ path });
+    const existing = assignments.find((a) => a.handle === handle && !a.releasedAt);
+    if (existing) return existing.assignedPhoneNumber;
+    const created = await this.photon.projects.platforms.imessage.assignments.create({
+      path,
+      body: { handle },
+      // Stable per handle: a retry after a timeout returns the same registration instead of taking a second seat.
+      headers: { idempotencyKey: `antibody-register-${handle}` },
+    });
+    return created.assignedPhoneNumber;
   }
 
   start(onInbound: InboundHandler) {

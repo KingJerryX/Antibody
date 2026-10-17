@@ -72,6 +72,8 @@ export interface FixProposal {
   confidence: "high" | "medium" | "low";
   checks: FixCheck[];
   prUrl?: string;
+  /** Pull request progress or why there isn't one ("Opening…", "GitHub isn't connected…", an error). */
+  prNote?: string;
   previewUrl?: string;
   /** "droid" when the Factory SDK wrote it, "mock" when running without keys. */
   author: "droid" | "mock";
@@ -138,13 +140,18 @@ export interface ProjectMemory {
   notes: { at: string; channel: Channel; text: string }[];
   /** Pairing code shown only on the project's Live page; texting "START <code>" links a phone to the project. */
   startCode?: string;
+  /** Phones registered with Photon from the setup page, and the Antibody line each one should text. */
+  phoneLines?: { handle: string; line: string }[];
 }
 
 export interface Project {
   id: string;
   name: string;
   url: string;
+  /** GitHub "owner/name" the project's code lives in, once connected. */
   repo?: string;
+  /** The Antibody GitHub App installation that grants access to `repo`. */
+  githubInstallationId?: number;
   /** Only verified projects may be actively probed. */
   verifiedDomain: boolean;
   createdAt: string;
