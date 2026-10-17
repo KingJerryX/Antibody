@@ -311,6 +311,13 @@ function VerifyStep({ project, error }: { project: Project; error?: string }) {
           {error}
         </p>
       )}
+      <p className="mt-3 text-sm">
+        Hosted on Vercel?{" "}
+        <a href="/api/vercel/connect" className="text-mint hover:underline">
+          Connect Vercel
+        </a>{" "}
+        instead: it proves every site on your Vercel projects at once, no pull request.
+      </p>
       <p className="mt-3 text-xs text-slate-500">
         Not deploying from GitHub? Add <code className="font-mono">{`<meta name="antibody-verify" content="${host}">`}</code> to your homepage instead.
       </p>
