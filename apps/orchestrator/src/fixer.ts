@@ -46,7 +46,7 @@ export class DroidFixer implements Fixer {
     try {
       // The project's connected GitHub repo when there is one; otherwise the local sample app.
       // Either way it's a git checkout, so the diff below is exactly what Droid changed.
-      const project = readDb().projects.find((p) => p.id === finding.projectId);
+      const project = (await readDb()).projects.find((p) => p.id === finding.projectId);
       if (project && isGithubConnected(project)) {
         await cloneProjectRepo(project, cwd);
       } else {

@@ -2,9 +2,17 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ActivityEvent, FixProposal, Project, ProjectMemory, ScanReport } from "./types.ts";
 
-// ponytail: one JSON file shared by web + orchestrator on the same machine.
-// On Vercel the bundle is read-only, so this process keeps the file in /tmp and in memory.
-// Another instance cannot see that copy; the scan response carries the report for the browser.
+// Two backends, same document:
+// - Supabase, when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set: one jsonb row, so the site on Vercel and the
+//   orchestrator elsewhere share state. Writes are compare-and-swap on `version`, retried on conflict.
+// - Otherwise a JSON file: data/db.json shared by web + orchestrator on one machine (local dev, empty .env.local).
+//   On Vercel without Supabase the bundle is read-only, so each instance keeps its own copy in /tmp and in memory;
+//   another instance can't see it, so the scan response carries the report for the browser.
+// ponytail: the whole store is one row rewritten per write; split into tables if activity grows past a few MB.
+//
+// Supabase setup (SQL editor, once). RLS on with no policies = only the service role key can touch it:
+//   create table antibody_store (id text primary key, data jsonb not null, version int not null);
+//   alter table antibody_store enable row level security;
 
 export interface Db {
   projects: Project[];
@@ -41,9 +49,9 @@ const mem = () => globalThis as Mem;
 const dbPath = () =>
   process.env.VERCEL ? "/tmp/antibody-db.json" : join(resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data"), "db.json");
 
-function load(): Db {
+function readFileDb(): Db {
   const cached = process.env.VERCEL ? mem().__antibodyDb : undefined;
-  if (cached) return cached;
+  if (cached) return structuredClone(cached);
   try {
     return { ...empty(), ...JSON.parse(readFileSync(dbPath(), "utf8")) };
   } catch {
@@ -51,15 +59,8 @@ function load(): Db {
   }
 }
 
-export function readDb(): Db {
-  const db = load();
-  return process.env.VERCEL && mem().__antibodyDb ? structuredClone(db) : db;
-}
-
-/** Read-modify-write. The temp-file rename keeps readers from seeing a half-written file. */
-export function updateDb<T>(fn: (db: Db) => T): T {
-  const db = load();
-  const result = fn(db);
+/** The temp-file rename keeps readers from seeing a half-written file. */
+function writeFileDb(db: Db): void {
   if (process.env.VERCEL) mem().__antibodyDb = db;
   const path = dbPath();
   try {
@@ -69,17 +70,72 @@ export function updateDb<T>(fn: (db: Db) => T): T {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     // The deployed app's filesystem is read-only outside /tmp. Keep the in-memory copy.
-    if (process.env.VERCEL && (code === "EROFS" || code === "EPERM" || code === "EACCES")) return result;
+    if (process.env.VERCEL && (code === "EROFS" || code === "EPERM" || code === "EACCES")) return;
     throw err;
   }
-  return result;
+}
+
+// Read per call: env is only complete at request time on Vercel, and tests set it after import.
+function supabase() {
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  return url && key ? { url: url.replace(/\/$/, ""), key } : undefined;
+}
+
+/** PostgREST call on the antibody_store table. Never logs the key. */
+async function rest<T>(query: string, init: { method?: string; prefer?: string; body?: unknown } = {}): Promise<T> {
+  const { url, key } = supabase()!;
+  const res = await fetch(`${url}/rest/v1/antibody_store?${query}`, {
+    method: init.method ?? "GET",
+    // New sb_secret_ keys go in apikey only; legacy service_role JWTs (eyJ…) also need the Bearer header.
+    headers: { apikey: key, ...(key.startsWith("eyJ") && { authorization: `Bearer ${key}` }), "content-type": "application/json", ...(init.prefer && { prefer: init.prefer }) },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`Supabase store ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json() as Promise<T>;
+}
+
+type Row = { data: Db; version: number };
+const readRow = async () => (await rest<Row[]>("id=eq.main&select=data,version"))[0];
+
+export async function readDb(): Promise<Db> {
+  if (!supabase()) return readFileDb();
+  const row = await readRow();
+  return { ...empty(), ...row?.data };
+}
+
+/**
+ * Read-modify-write. `fn` may run more than once (Supabase retries on a concurrent write), so it must only
+ * change `db`. File mode: the temp-file rename keeps readers from seeing a half-written file.
+ */
+export async function updateDb<T>(fn: (db: Db) => T): Promise<T> {
+  if (!supabase()) {
+    const db = readFileDb();
+    const result = fn(db);
+    writeFileDb(db);
+    return result;
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const row = await readRow();
+    const db = { ...empty(), ...row?.data };
+    const result = fn(db);
+    // Only lands if nobody wrote since our read; an empty result means we lost the race, so re-read and retry.
+    const written = row
+      ? await rest<Row[]>(`id=eq.main&version=eq.${row.version}`, { method: "PATCH", prefer: "return=representation", body: { data: db, version: row.version + 1 } })
+      : await rest<Row[]>("on_conflict=id", { method: "POST", prefer: "return=representation,resolution=ignore-duplicates", body: { id: "main", data: db, version: 1 } });
+    if (written.length) return result;
+    await new Promise((r) => setTimeout(r, 20 + Math.random() * 80 * (attempt + 1)));
+  }
+  throw new Error("Supabase store: too many concurrent writes, gave up");
 }
 
 export const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
-export function logActivity(e: Omit<ActivityEvent, "id" | "at">): ActivityEvent {
+export async function logActivity(e: Omit<ActivityEvent, "id" | "at">): Promise<ActivityEvent> {
   const event = { ...e, id: newId("evt"), at: new Date().toISOString() };
-  updateDb((db) => db.activity.push(event));
+  await updateDb((db) => db.activity.push(event));
   return event;
 }
 
@@ -96,8 +152,8 @@ export function memoryFor(db: Db, projectId: string): ProjectMemory {
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I/L
 
 /** The project's START code, created on first use. Show it only where the owner is (the localhost web UI). */
-export function startCodeFor(projectId: string): string {
-  const existing = readDb().memory.find((m) => m.projectId === projectId)?.startCode;
+export async function startCodeFor(projectId: string): Promise<string> {
+  const existing = (await readDb()).memory.find((m) => m.projectId === projectId)?.startCode;
   if (existing) return existing;
   return updateDb((db) => {
     const m = memoryFor(db, projectId);

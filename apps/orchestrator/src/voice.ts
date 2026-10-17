@@ -39,12 +39,12 @@ export async function placeCall(to: string, ctx: CallContext, messenger: Messeng
       console.log(`[voice] call started: ${(await elevenLabsCall(to, ctx)) ?? "no call id returned"}`);
     } catch (err) {
       console.error("[voice]", err instanceof Error ? err.message : err);
-      logActivity({ projectId: ctx.projectId, type: "call", title: "Emergency call failed", detail: "Falling back to text only.", channel: "voice", refId: ctx.refId });
+      await logActivity({ projectId: ctx.projectId, type: "call", title: "Emergency call failed", detail: "Falling back to text only.", channel: "voice", refId: ctx.refId });
       await messenger.send(to, `I tried to call you about this: ${ctx.script}`, { projectId: ctx.projectId, refId: ctx.refId });
       return;
     }
   }
-  logActivity({
+  await logActivity({
     projectId: ctx.projectId,
     type: "call",
     title: live ? `Calling ${maskHandle(to)}` : `[mock call, no phone rang] would call ${maskHandle(to)}`,
@@ -54,6 +54,6 @@ export async function placeCall(to: string, ctx: CallContext, messenger: Messeng
   });
   // ponytail: a live call's real summary arrives later from ElevenLabs' post-call webhook (not wired); until then
   // we record what we said and follow up right away so the text thread picks up where the call left off.
-  updateDb((db) => memoryFor(db, ctx.projectId).notes.push({ at: new Date().toISOString(), channel: "voice", text: `Call to ${maskHandle(to)}: ${ctx.script}` }));
+  await updateDb((db) => memoryFor(db, ctx.projectId).notes.push({ at: new Date().toISOString(), channel: "voice", text: `Call to ${maskHandle(to)}: ${ctx.script}` }));
   await messenger.send(to, `As we discussed on the call: ${ctx.script}`, { projectId: ctx.projectId, refId: ctx.refId });
 }

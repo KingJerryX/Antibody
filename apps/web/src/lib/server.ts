@@ -37,7 +37,7 @@ export function repoDirFor(host: string): string | undefined {
   }
 }
 
-/** Store reads are synchronous fs reads; connection() keeps them out of build-time prerendering. */
+/** connection() keeps store reads (a file or Supabase) out of build-time prerendering. */
 export async function readStore() {
   await connection();
   return readDb();

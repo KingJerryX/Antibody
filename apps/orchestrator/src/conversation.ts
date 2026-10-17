@@ -40,8 +40,8 @@ export function parseIntent(raw: string): Intent {
  * START code it carries, else the project we last texted among those this sender may act on, else the newest such
  * project, else the newest project (only so the text gets logged; handleText refuses strangers).
  */
-export function projectFor(handle: string, text = ""): string {
-  const db = readDb();
+export async function projectFor(handle: string, text = ""): Promise<string> {
+  const db = await readDb();
   const fixId = text.match(FIX_ID)?.[1]?.toLowerCase();
   const code = text.trim().match(START_CODE)?.[1]?.toUpperCase();
   const ids = [...new Set([...db.projects.map((p) => p.id), ...db.memory.map((m) => m.projectId)])];
@@ -58,13 +58,13 @@ export function projectFor(handle: string, text = ""): string {
 }
 
 /** Only the project's teammates may act by text; before anyone texts START, only the handle we notify (ownerOf). */
-export function canAct(projectId: string, handle: string, db: Db = readDb()): boolean {
+export function canAct(projectId: string, handle: string, db: Db): boolean {
   const team = db.memory.find((x) => x.projectId === projectId)?.teammates ?? [];
   return team.length ? team.some((t) => t.handle === handle) : handle === ownerOf(projectId, db);
 }
 
 /** The project's owner; if unclaimed, PHOTON_TEST_SENDER; in mock mode, the fake MOCK_OWNER phone. */
-export function ownerOf(projectId: string, db: Db = readDb()): string | undefined {
+export function ownerOf(projectId: string, db: Db): string | undefined {
   const m = db.memory.find((x) => x.projectId === projectId);
   return (m?.teammates.find((t) => t.role === "owner") ?? m?.teammates[0])?.handle ?? defaultOwner();
 }
@@ -79,7 +79,7 @@ const decide = (db: Db, projectId: string, by: string, text: string) =>
   memoryFor(db, projectId).decisions.push({ at: new Date().toISOString(), by, text });
 
 /** Returns the reply text. Records decisions in ProjectMemory and activity for the /live page. */
-export function handleText(projectId: string, from: string, text: string): string {
+export async function handleText(projectId: string, from: string, text: string): Promise<string> {
   const intent = parseIntent(text);
 
   if (intent.kind === "start") {
@@ -87,7 +87,7 @@ export function handleText(projectId: string, from: string, text: string): strin
     // nobody has claimed it yet. Bare START only works for the default owner handle (PHOTON_TEST_SENDER or the mock
     // phone), who gets our texts anyway: it claims every unclaimed project, so one owner hears about all their apps.
     const fallback = defaultOwner();
-    const claimed = updateDb((db) => {
+    const claimed = await updateDb((db) => {
       const ids = intent.code
         ? db.memory.filter((m) => m.startCode === intent.code).map((m) => m.projectId)
         : from === fallback
@@ -113,10 +113,10 @@ export function handleText(projectId: string, from: string, text: string): strin
   }
 
   // Everything past START, even STATUS (which reveals scan results), is only for the project's own people.
-  if (!canAct(projectId, from)) return NOT_LINKED;
+  const db = await readDb();
+  if (!canAct(projectId, from, db)) return NOT_LINKED;
 
   if (intent.kind === "status") {
-    const db = readDb();
     const scan = db.scans.filter((s) => s.projectId === projectId).at(-1);
     const ready = db.fixes.filter((f) => f.projectId === projectId && f.status === "ready");
     const latest = ready.at(-1);
@@ -131,10 +131,10 @@ export function handleText(projectId: string, from: string, text: string): strin
 
   if (intent.kind === "approve") {
     if (!intent.fixId) {
-      const ready = readDb().fixes.filter((f) => f.projectId === projectId && f.status === "ready").at(-1);
+      const ready = db.fixes.filter((f) => f.projectId === projectId && f.status === "ready").at(-1);
       return ready ? `Which fix? Reply YES ${ready.id} to approve it (merging still happens in GitHub).` : "There's nothing waiting for approval right now.";
     }
-    const fix = updateDb((db) => {
+    const fix = await updateDb((db) => {
       const f = db.fixes.find((x) => x.id === intent.fixId && x.projectId === projectId);
       if (f?.status === "ready") f.status = "approved";
       if (f?.status === "approved") decide(db, projectId, from, `Approved ${f.id} by text (merge still requires GitHub)`);
@@ -142,7 +142,7 @@ export function handleText(projectId: string, from: string, text: string): strin
     });
     if (!fix) return `I can't find ${intent.fixId}. Text STATUS to see what's ready.`;
     if (fix.status !== "approved") return `${fix.id} is ${fix.status}, so there's nothing to approve.`;
-    logActivity({ projectId, type: "approval", title: `Fix ${fix.id} approved by text`, detail: "Merging happens in GitHub, not over text.", channel: "imessage", refId: fix.id });
+    await logActivity({ projectId, type: "approval", title: `Fix ${fix.id} approved by text`, detail: "Merging happens in GitHub, not over text.", channel: "imessage", refId: fix.id });
     return `Marked ${fix.id} approved. Merging happens in GitHub: ${fix.prUrl ?? "the PR link is on the review page"}. A text alone can't merge code.`;
   }
 
@@ -156,7 +156,7 @@ export function handleText(projectId: string, from: string, text: string): strin
       temporary_block: ["Asked for a temporary block (expires in 24h)", "Blocked temporarily; it expires on its own in 24h. Reply UNDO if that was you."],
       watch: ["Chose to watch, no action", "OK, just watching. I'll text you if it gets worse."],
     };
-    const [decision, reply] = updateDb((db) => {
+    const [decision, reply] = await updateDb((db) => {
       let out = replies[intent.action];
       if (intent.action === "undo") {
         // If the last thing decided was a text approval, UNDO puts that fix back to "ready".
@@ -170,7 +170,7 @@ export function handleText(projectId: string, from: string, text: string): strin
       decide(db, projectId, from, out[0]);
       return out;
     });
-    logActivity({ projectId, type: intent.action === "undo" ? "undo" : "approval", title: decision, channel: "imessage" });
+    await logActivity({ projectId, type: intent.action === "undo" ? "undo" : "approval", title: decision, channel: "imessage" });
     return reply;
   }
 

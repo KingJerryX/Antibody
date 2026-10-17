@@ -10,6 +10,6 @@ export async function GET(request: Request) {
   const app = await convertManifestCode(code);
   saveGithubApp(app);
   // Straight on to installing it, if we know which project asked.
-  const known = readDb().projects.some((p) => p.id === projectId);
+  const known = (await readDb()).projects.some((p) => p.id === projectId);
   return Response.redirect(known ? installUrl(app, projectId) : app.html_url, 302);
 }

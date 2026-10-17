@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     const scanId = newId("scan");
 
-    const project = updateDb((db) => {
+    const project = await updateDb((db) => {
       const verifiedDomain = domains.includes(target.host.toLowerCase());
       let p = db.projects.find((x) => x.url === target.origin);
       if (!p) {
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       return p;
     });
 
-    logActivity({ projectId: project.id, type: "scan_started", title: `Scanning ${target.host}`, channel: "web", refId: scanId });
+    await logActivity({ projectId: project.id, type: "scan_started", title: `Scanning ${target.host}`, channel: "web", refId: scanId });
 
     const finish = async (): Promise<ScanReport> => {
       let report: ScanReport;
@@ -54,13 +54,13 @@ export async function POST(request: Request) {
       } catch (err) {
         report = { id: scanId, projectId: project.id, targetUrl: target.href, status: "error", startedAt: now, finishedAt: new Date().toISOString(), findings: [], passed: [], error: err instanceof Error ? err.message : "Scan failed" };
       }
-      updateDb((db) => {
+      await updateDb((db) => {
         const i = db.scans.findIndex((s) => s.id === scanId);
         if (i >= 0) db.scans[i] = report;
         else db.scans.push(report);
       });
       const serious = report.findings.filter((f) => f.severity === "critical" || f.severity === "high");
-      logActivity({
+      await logActivity({
         projectId: project.id,
         type: "scan_done",
         title: report.status === "error" ? `Scan of ${target.host} failed` : `Scan done: ${report.findings.length} issue${report.findings.length === 1 ? "" : "s"} found`,
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
         refId: scanId,
       });
       for (const f of serious) {
-        logActivity({ projectId: project.id, type: "finding", title: f.title, detail: f.plainEnglish, channel: "web", refId: f.id });
+        await logActivity({ projectId: project.id, type: "finding", title: f.title, detail: f.plainEnglish, channel: "web", refId: f.id });
       }
       return report;
     };

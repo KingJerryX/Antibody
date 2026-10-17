@@ -44,8 +44,8 @@ export function asFinding(v: unknown): Finding | undefined {
 }
 
 /** Mock patch for a finding. One ready fix per finding, so a second click reopens the same review. */
-export function proposeFix(finding: Finding): FixProposal {
-  const existing = readDb().fixes.find((f) => f.findingId === finding.id && (f.status === "ready" || f.status === "drafting" || f.status === "approved"));
+export async function proposeFix(finding: Finding): Promise<FixProposal> {
+  const existing = (await readDb()).fixes.find((f) => f.findingId === finding.id && (f.status === "ready" || f.status === "drafting" || f.status === "approved"));
   if (existing) return existing;
   const fix: FixProposal = {
     id: newId("fix"),
@@ -55,10 +55,10 @@ export function proposeFix(finding: Finding): FixProposal {
     ...draftMockFix(finding),
     createdAt: new Date().toISOString(),
   };
-  updateDb((db) => {
+  await updateDb((db) => {
     db.fixes.push(fix);
   });
-  logActivity({
+  await logActivity({
     projectId: finding.projectId,
     type: "fix_ready",
     title: `Fix ready: ${finding.title}`,
@@ -78,17 +78,17 @@ function asFix(v: unknown, id: string): FixProposal | undefined {
   return f;
 }
 
-export function actOnFix(
+export async function actOnFix(
   id: string,
   action: "approve" | "reject" | "revise",
   instructions: string | undefined,
   posted: unknown,
-): { fix: FixProposal } | { error: string; status: number } {
-  let fix = readDb().fixes.find((f) => f.id === id);
+): Promise<{ fix: FixProposal } | { error: string; status: number }> {
+  let fix = (await readDb()).fixes.find((f) => f.id === id);
   if (!fix) {
     const fromClient = asFix(posted, id);
     if (!fromClient) return { error: `fix ${id} not found`, status: 404 };
-    updateDb((db) => {
+    await updateDb((db) => {
       if (!db.fixes.some((f) => f.id === id)) db.fixes.push(fromClient);
     });
     fix = fromClient;
@@ -98,20 +98,20 @@ export function actOnFix(
   if (action === "approve") {
     if (fix.status !== "ready") return { error: `fix is ${fix.status}, only ready fixes can be approved`, status: 409 };
     next = { ...fix, status: "approved" };
-    logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} approved on the review page`, detail: "GitHub is not connected, so no pull request was opened.", channel: "web", refId: id });
+    await logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} approved on the review page`, detail: "GitHub is not connected, so no pull request was opened.", channel: "web", refId: id });
   } else if (action === "reject") {
     if (fix.status !== "ready" && fix.status !== "drafting") return { error: `fix is ${fix.status}`, status: 409 };
     next = { ...fix, status: "rejected" };
-    logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} rejected`, channel: "web", refId: id });
+    await logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} rejected`, channel: "web", refId: id });
   } else {
     if (fix.status !== "ready" && fix.status !== "rejected") return { error: `fix is ${fix.status}`, status: 409 };
     const note = instructions?.trim().slice(0, 200);
     if (!note) return { error: "Tell Antibody what to change", status: 400 };
     next = { ...fix, status: "ready", summary: { ...fix.summary, whatChanges: `${fix.summary.whatChanges} (Revised per your note: "${note}".)` } };
-    logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: note, channel: "web", refId: id });
+    await logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: note, channel: "web", refId: id });
   }
 
-  updateDb((db) => {
+  await updateDb((db) => {
     const i = db.fixes.findIndex((f) => f.id === id);
     if (i >= 0) db.fixes[i] = next;
     else db.fixes.push(next);

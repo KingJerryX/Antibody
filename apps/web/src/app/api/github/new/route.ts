@@ -9,7 +9,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
  */
 export async function GET(request: Request) {
   const projectId = new URL(request.url).searchParams.get("project") ?? "";
-  if (!readDb().projects.some((p) => p.id === projectId)) return Response.json({ error: "Unknown project" }, { status: 404 });
+  if (!(await readDb()).projects.some((p) => p.id === projectId)) return Response.json({ error: "Unknown project" }, { status: 404 });
 
   const app = readGithubApp();
   if (app) return Response.redirect(installUrl(app, projectId), 302);

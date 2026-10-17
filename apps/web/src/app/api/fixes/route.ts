@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const finding = asFinding(b.finding);
     if (!finding || finding.id !== b.findingId) return Response.json({ error: "The report for this finding is missing. Scan again, then fix it." }, { status: 400 });
     try {
-      return Response.json(proposeFix(finding), { status: 201 });
+      return Response.json(await proposeFix(finding), { status: 201 });
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Couldn't start the fix" }, { status: 500 });
     }

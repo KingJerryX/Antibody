@@ -17,22 +17,22 @@ const fixer = createFixer();
 const pendingCalls = new Map<string, NodeJS.Timeout>();
 
 messenger.start(async ({ from, text }) => {
-  const projectId = projectFor(from, text);
+  const projectId = await projectFor(from, text);
   const body = text.slice(0, 2000);
-  logActivity({ projectId, type: "message_in", title: body.slice(0, 280), detail: `from ${maskHandle(from)}${messenger.mode === "mock" ? " [mock]" : ""}`, channel: "imessage" });
+  await logActivity({ projectId, type: "message_in", title: body.slice(0, 280), detail: `from ${maskHandle(from)}${messenger.mode === "mock" ? " [mock]" : ""}`, channel: "imessage" });
   // A reply from the project's own people counts as "the human responded": cancel the escalation call.
-  if (canAct(projectId, from)) {
+  if (canAct(projectId, from, await readDb())) {
     clearTimeout(pendingCalls.get(projectId));
     pendingCalls.delete(projectId);
   }
-  await messenger.send(from, handleText(projectId, from, body), { projectId });
+  await messenger.send(from, await handleText(projectId, from, body), { projectId });
   // A "YES fix_…" text approves inside handleText; open the PR for anything newly approved.
-  for (const f of readDb().fixes) if (f.projectId === projectId && f.status === "approved" && !f.prUrl && !f.prNote) void openPrFor(f.id);
+  for (const f of (await readDb()).fixes) if (f.projectId === projectId && f.status === "approved" && !f.prUrl && !f.prNote) void openPrFor(f.id);
 });
 
 // ---------- notify (interrupt budget) ----------
 async function notify(projectId: string, severity: Severity, text: string, active = false, refId?: string) {
-  const db = readDb();
+  const db = await readDb();
   const delivery = deliveryFor({ severity, active }, new Date(), memoryFor(db, projectId).preferences.quietHours);
   const to = ownerOf(projectId, db);
   if (delivery.route !== "text_now") {
@@ -67,30 +67,30 @@ const saveFix = (id: string, patch: Partial<FixProposal>) =>
     return { ...f };
   });
 
-function findFinding(findingId: string) {
-  return readDb().scans.flatMap((s) => s.findings).find((f) => f.id === findingId);
+async function findFinding(findingId: string) {
+  return (await readDb()).scans.flatMap((s) => s.findings).find((f) => f.id === findingId);
 }
 
 /** Drafts in the background; resolves once the proposal is ready (or failed back to "rejected" with a note). */
 async function draftFix(fix: FixProposal, instructions?: string): Promise<FixProposal> {
   const fixId = fix.id;
-  const finding = findFinding(fix.findingId)!;
+  const finding = (await findFinding(fix.findingId))!;
   try {
     const draft = await fixer.draft(finding, instructions);
-    const ready = saveFix(fixId, { ...draft, status: "ready" });
-    logActivity({ projectId: fix.projectId, type: "fix_ready", title: `Fix ready: ${finding.title}`, detail: `${draft.linesChanged} lines, confidence ${draft.confidence}${draft.author === "mock" ? " [mock fixer]" : ""}`, channel: "web", refId: fixId });
+    const ready = await saveFix(fixId, { ...draft, status: "ready" });
+    await logActivity({ projectId: fix.projectId, type: "fix_ready", title: `Fix ready: ${finding.title}`, detail: `${draft.linesChanged} lines, confidence ${draft.confidence}${draft.author === "mock" ? " [mock fixer]" : ""}`, channel: "web", refId: fixId });
     await notify(fix.projectId, finding.severity, `Fix ready for "${finding.title}": ${draft.summary.whatChanges} Review it, then reply YES ${fixId} (merging happens in GitHub).`, false, fixId);
     return ready;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[fixer] ${fixId} failed:`, msg);
-    logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Couldn't draft a fix for ${finding.title}`, detail: msg.slice(0, 300), channel: "web", refId: fixId });
+    await logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Couldn't draft a fix for ${finding.title}`, detail: msg.slice(0, 300), channel: "web", refId: fixId });
     return saveFix(fixId, { status: "rejected", summary: { ...fix.summary, whatChanges: `Drafting failed: ${msg.slice(0, 200)}` } });
   }
 }
 
 async function startFix(findingId: string): Promise<FixProposal | undefined> {
-  const finding = findFinding(findingId);
+  const finding = await findFinding(findingId);
   if (!finding) return undefined;
   const fix: FixProposal = {
     id: newId("fix"),
@@ -106,8 +106,8 @@ async function startFix(findingId: string): Promise<FixProposal | undefined> {
     author: fixer instanceof DroidFixer ? "droid" : "mock",
     createdAt: new Date().toISOString(),
   };
-  updateDb((db) => db.fixes.push(fix));
-  logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Drafting a fix: ${finding.title}`, channel: "web", refId: fix.id });
+  await updateDb((db) => db.fixes.push(fix));
+  await logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Drafting a fix: ${finding.title}`, channel: "web", refId: fix.id });
   const done = draftFix(fix);
   // Mock is instant, so return the ready fix; Droid takes minutes, so return "drafting" and let the web poll GET /api/fixes/[id].
   return fix.author === "mock" ? done : fix;
@@ -122,31 +122,31 @@ const openingPrs = new Set<string>();
  * Antibody never merges; the owner merges in GitHub. Safe to call repeatedly.
  */
 async function openPrFor(fixId: string) {
-  const db = readDb();
+  const db = await readDb();
   const fix = db.fixes.find((f) => f.id === fixId);
   if (!fix || fix.status !== "approved" || fix.prUrl || openingPrs.has(fixId)) return;
   const project = db.projects.find((p) => p.id === fix.projectId);
   if (!project || !isGithubConnected(project)) {
-    saveFix(fixId, { prNote: "GitHub isn't connected, so there's no pull request. Connect it on the setup page." });
+    await saveFix(fixId, { prNote: "GitHub isn't connected, so there's no pull request. Connect it on the setup page." });
     return;
   }
   if (fix.author !== "droid") {
-    saveFix(fixId, { prNote: "Mock fixes aren't opened as pull requests. Add a Factory key for real fixes." });
+    await saveFix(fixId, { prNote: "Mock fixes aren't opened as pull requests. Add a Factory key for real fixes." });
     return;
   }
   openingPrs.add(fixId);
-  saveFix(fixId, { prNote: OPENING_PR });
+  await saveFix(fixId, { prNote: OPENING_PR });
   try {
-    const url = await openPullRequest(project, fix, findFinding(fix.findingId)?.title ?? "security fix");
-    saveFix(fixId, { prUrl: url, prNote: undefined });
-    logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request opened for ${fixId}`, detail: url, channel: "github", refId: fixId });
-    const to = ownerOf(fix.projectId);
+    const url = await openPullRequest(project, fix, (await findFinding(fix.findingId))?.title ?? "security fix");
+    await saveFix(fixId, { prUrl: url, prNote: undefined });
+    await logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request opened for ${fixId}`, detail: url, channel: "github", refId: fixId });
+    const to = ownerOf(fix.projectId, await readDb());
     if (to) await messenger.send(to, `Pull request opened on ${project.repo}: ${url} Review it and merge in GitHub when you're happy.`, { projectId: fix.projectId, refId: fixId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[github] PR for ${fixId} failed:`, msg);
-    saveFix(fixId, { prNote: `Couldn't open the pull request: ${msg.slice(0, 200)}` });
-    logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request for ${fixId} failed`, detail: msg.slice(0, 300), channel: "github", refId: fixId });
+    await saveFix(fixId, { prNote: `Couldn't open the pull request: ${msg.slice(0, 200)}` });
+    await logActivity({ projectId: fix.projectId, type: "approval", title: `Pull request for ${fixId} failed`, detail: msg.slice(0, 300), channel: "github", refId: fixId });
   } finally {
     openingPrs.delete(fixId);
   }
@@ -172,7 +172,8 @@ const send = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-const str = (v: unknown, max = 2000) => (typeof v === "string" && v.trim() ? v.slice(0, max) : undefined);const SEVERITIES = ["critical", "high", "medium", "low"];
+const str = (v: unknown, max = 2000) => (typeof v === "string" && v.trim() ? v.slice(0, max) : undefined);
+const SEVERITIES = ["critical", "high", "medium", "low"];
 
 async function route(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -199,10 +200,10 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   if (path === "/photon/register") {
     const projectId = str(json.projectId, 100);
     const handle = toE164(str(json.phone, 40));
-    if (!projectId || !readDb().projects.some((p) => p.id === projectId)) return send(res, 404, { error: "Unknown project" });
+    if (!projectId || !(await readDb()).projects.some((p) => p.id === projectId)) return send(res, 404, { error: "Unknown project" });
     if (!handle) return send(res, 400, { error: "Enter a phone number with area code, like +1 617 555 0123." });
     const line = await messenger.registerSender(handle);
-    updateDb((db) => {
+    await updateDb((db) => {
       const m = memoryFor(db, projectId);
       m.phoneLines = [...(m.phoneLines ?? []).filter((r) => r.handle !== handle), { handle, line }];
     });
@@ -220,27 +221,27 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   const m = path.match(/^\/fixes\/([\w-]+)\/(approve|reject|revise)$/);
   if (m) {
     const [, id, action] = m;
-    const fix = readDb().fixes.find((f) => f.id === id);
+    const fix = (await readDb()).fixes.find((f) => f.id === id);
     if (!fix) return send(res, 404, { error: `fix ${id} not found` });
     if (action === "approve") {
       if (fix.status !== "ready") return send(res, 409, { error: `fix is ${fix.status}, only ready fixes can be approved` });
-      logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} approved on the review page`, detail: "Antibody never merges; merge the PR in GitHub.", channel: "web", refId: id });
-      updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Approved ${id}` }));
-      const approved = saveFix(id, { status: "approved" });
+      await logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} approved on the review page`, detail: "Antibody never merges; merge the PR in GitHub.", channel: "web", refId: id });
+      await updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Approved ${id}` }));
+      const approved = await saveFix(id, { status: "approved" });
       void openPrFor(id);
       return send(res, 200, approved);
     }
     if (action === "reject") {
       if (!["ready", "drafting"].includes(fix.status)) return send(res, 409, { error: `fix is ${fix.status}` });
-      logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} rejected`, channel: "web", refId: id });
-      return send(res, 200, saveFix(id, { status: "rejected" }));
+      await logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} rejected`, channel: "web", refId: id });
+      return send(res, 200, await saveFix(id, { status: "rejected" }));
     }
     const instructions = str(json.instructions, 1000);
     if (!instructions) return send(res, 400, { error: "need instructions" });
     if (fix.status !== "ready" && fix.status !== "rejected") return send(res, 409, { error: `fix is ${fix.status}` });
-    updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Asked to revise ${id}: ${instructions.slice(0, 200)}` }));
-    const drafting = saveFix(id, { status: "drafting" });
-    logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: instructions.slice(0, 200), channel: "web", refId: id });
+    await updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Asked to revise ${id}: ${instructions.slice(0, 200)}` }));
+    const drafting = await saveFix(id, { status: "drafting" });
+    await logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: instructions.slice(0, 200), channel: "web", refId: id });
     const done = draftFix(fix, instructions);
     return send(res, 200, fix.author === "mock" ? await done : drafting);
   }
@@ -256,8 +257,8 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   }
 
   if (path === "/github/webhook") {
-    const projectId = str(url.searchParams.get("projectId"), 100) ?? readDb().projects.at(-1)?.id ?? "demo";
-    const status = handleGithubWebhook(raw, req.headers, projectId);
+    const projectId = str(url.searchParams.get("projectId"), 100) ?? (await readDb()).projects.at(-1)?.id ?? "demo";
+    const status = await handleGithubWebhook(raw, req.headers, projectId);
     return send(res, status, { status });
   }
 

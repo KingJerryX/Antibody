@@ -17,5 +17,5 @@ export default function LivePage({ params }: { params: Promise<{ projectId: stri
 async function LiveWithCode({ params }: { params: Promise<{ projectId: string }> }) {
   await connection();
   const { projectId } = await params;
-  return <LiveView startCode={startCodeFor(projectId)} />;
+  return <LiveView startCode={await startCodeFor(projectId)} />;
 }

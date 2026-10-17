@@ -30,7 +30,7 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   if (!project) notFound();
 
   // The START code proves a phone belongs to someone who can see this page (localhost only).
-  const code = startCodeFor(projectId);
+  const code = await startCodeFor(projectId);
   const memory = db.memory.find((m) => m.projectId === projectId);
   const linked = memory?.teammates ?? [];
   // Phones registered with Photon from this page, each with the Antibody line Photon assigned it.

@@ -47,7 +47,7 @@ async function exploitTest(finding: Finding, patched: string): Promise<FixCheck>
 
 /** Every other page and GET route must answer the patched app the same way it answers the original. */
 async function behaviorTests(finding: Finding, fixedDir: string, patched: string): Promise<FixCheck> {
-  const original = originOf(finding);
+  const original = await originOf(finding);
   const verified = (process.env.ANTIBODY_VERIFIED_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase());
   if (!original || !verified.includes(new URL(original).host)) {
     return { name: "behavior_tests", status: "skipped", detail: "No verified original app to compare against." };
@@ -78,8 +78,8 @@ async function codeCheck(finding: Finding, fixedDir: string, diffLines: number, 
   return { name: "second_review", status: "pass", detail: `Semgrep no longer flags it in the patched code. Diff: ${size}.` };
 }
 
-function originOf(finding: Finding): string | undefined {
-  return URL.parse(finding.location?.url ?? "")?.origin ?? readDb().projects.find((p) => p.id === finding.projectId)?.url;
+async function originOf(finding: Finding): Promise<string | undefined> {
+  return URL.parse(finding.location?.url ?? "")?.origin ?? (await readDb()).projects.find((p) => p.id === finding.projectId)?.url;
 }
 
 /** Static pages and GET route handlers under app/, with [params] filled in as 1. */

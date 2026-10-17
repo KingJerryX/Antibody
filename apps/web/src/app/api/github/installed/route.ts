@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   await getInstallation(installationId);
   const repos = await installationRepos(installationId);
 
-  const found = updateDb((db) => {
+  const found = await updateDb((db) => {
     const p = db.projects.find((x) => x.id === projectId);
     if (!p) return false;
     p.githubInstallationId = installationId;

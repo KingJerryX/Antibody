@@ -11,7 +11,7 @@ function verifySignature(body: string, signature: string | undefined, secret: st
 }
 
 /** Returns an HTTP status. */
-export function handleGithubWebhook(body: string, headers: Record<string, string | string[] | undefined>, projectId: string): number {
+export async function handleGithubWebhook(body: string, headers: Record<string, string | string[] | undefined>, projectId: string): Promise<number> {
   // Webhooks stay off until there's a public URL and a secret (localhost can't receive them).
   if (!isLive("github") || !process.env.GITHUB_WEBHOOK_SECRET) return 404;
   if (!verifySignature(body, headers["x-hub-signature-256"] as string | undefined, process.env.GITHUB_WEBHOOK_SECRET!)) return 401;
@@ -20,6 +20,6 @@ export function handleGithubWebhook(body: string, headers: Record<string, string
   const payload = JSON.parse(body) as { repository?: { full_name?: string }; pull_request?: { number?: number }; after?: string };
   const what = event === "pull_request" ? `PR #${payload.pull_request?.number}` : `push ${String(payload.after ?? "").slice(0, 7)}`;
   // ponytail: stub. Real version: clone the head commit, run the scanner + DroidFixer, post a check run via octokit.
-  logActivity({ projectId, type: "scan_started", title: `PR check queued for ${payload.repository?.full_name ?? "repo"} ${what}`, detail: "GitHub check runner is a stub.", channel: "github" });
+  await logActivity({ projectId, type: "scan_started", title: `PR check queued for ${payload.repository?.full_name ?? "repo"} ${what}`, detail: "GitHub check runner is a stub.", channel: "github" });
   return 202;
 }

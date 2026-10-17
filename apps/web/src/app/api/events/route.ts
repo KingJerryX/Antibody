@@ -20,5 +20,5 @@ export async function POST(request: Request) {
     channel: CHANNELS.includes(b.channel) ? b.channel : undefined,
     refId: str(b.refId, 100),
   };
-  return Response.json(logActivity(event), { status: 201 });
+  return Response.json(await logActivity(event), { status: 201 });
 }

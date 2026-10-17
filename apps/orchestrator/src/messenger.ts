@@ -24,7 +24,7 @@ export interface Messenger {
 }
 
 function logOut(mode: string, to: string, text: string, opts: SendOpts) {
-  logActivity({
+  return logActivity({
     projectId: opts.projectId,
     type: "message_out",
     title: text.slice(0, 280),
@@ -39,7 +39,7 @@ export class MockMessenger implements Messenger {
   private onInbound?: InboundHandler;
   async send(to: string, text: string, opts: SendOpts) {
     console.log(`[mock imessage] -> ${maskHandle(to)}: ${text}`);
-    logOut(this.mode, to, text, opts);
+    await logOut(this.mode, to, text, opts);
   }
   start(onInbound: InboundHandler) {
     this.onInbound = onInbound;
@@ -89,7 +89,7 @@ export class PhotonMessenger implements Messenger {
     if (!route) {
       // A shared iMessage line can't start a conversation: the human has to text first (that's what START is for).
       console.warn(`[photon] no open thread with ${maskHandle(to)}; they need to text START first. Message not sent.`);
-      logActivity({ projectId: opts.projectId, type: "message_out", title: text.slice(0, 280), detail: `not sent: ${maskHandle(to)} hasn't texted the agent yet`, channel: "imessage", refId: opts.refId });
+      await logActivity({ projectId: opts.projectId, type: "message_out", title: text.slice(0, 280), detail: `not sent: ${maskHandle(to)} hasn't texted the agent yet`, channel: "imessage", refId: opts.refId });
       return;
     }
     await this.photon.projects.sendMessage({
@@ -102,7 +102,7 @@ export class PhotonMessenger implements Messenger {
         content: { type: "text", format: "plain", text },
       },
     });
-    logOut(this.mode, to, text, opts);
+    await logOut(this.mode, to, text, opts);
   }
 
   /**

@@ -6,13 +6,13 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const projectId = String(form.get("projectId") ?? "");
   const repo = String(form.get("repo") ?? "");
-  const project = readDb().projects.find((p) => p.id === projectId);
+  const project = (await readDb()).projects.find((p) => p.id === projectId);
   if (!project?.githubInstallationId) return Response.json({ error: "Connect GitHub first" }, { status: 400 });
 
   const allowed = await installationRepos(project.githubInstallationId);
   if (!allowed.some((r) => r.full_name === repo)) return Response.json({ error: "That repo isn't in the installation" }, { status: 400 });
 
-  updateDb((db) => {
+  await updateDb((db) => {
     const p = db.projects.find((x) => x.id === projectId);
     if (p) p.repo = repo;
   });

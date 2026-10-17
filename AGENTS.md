@@ -9,7 +9,7 @@ Product context: Antibody is a security teammate for vibe-coded apps. Current st
 |---|---|---|
 | `apps/web` | Next.js 16 site: landing, URL scan, report, fix review, live activity | `npm run dev:web` (port 3000) |
 | `apps/orchestrator` | Node service: Photon iMessage loop, approval policy, Droid fixer, GitHub webhooks | `npm run dev:orchestrator` |
-| `packages/core` | Shared types (`types.ts`) and JSON-file store (`store.ts`) | — |
+| `packages/core` | Shared types (`types.ts`) and store (`store.ts`: Supabase when keyed, else `data/db.json`) | — |
 | `packages/scanner` | URL scan engine used by the web app | `npm test -w @antibody/scanner` |
 | `packages/shield` | Next.js middleware for in-request blocking (Chalk + local fallback) | `npm test -w @antibody/shield` |
 | `samples/vuln-app` | Deliberately vulnerable demo app | `npm run dev:sample` (port 4000) |
