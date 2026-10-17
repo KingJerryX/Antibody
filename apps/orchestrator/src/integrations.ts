@@ -1,6 +1,6 @@
 // Decides per integration whether we talk to the real service or a mock: env keys, plus the GitHub App file.
 import { timingSafeEqual } from "node:crypto";
-import { readGithubApp } from "@antibody/core";
+import { githubAppOnDisk } from "@antibody/core";
 
 type IntegrationMode = "live" | "mock" | "disabled";
 export type IntegrationName = "photon" | "chalk" | "factory" | "github" | "voice";
@@ -11,7 +11,7 @@ const REQUIRED: Record<IntegrationName, string[]> = {
   photon: ["PHOTON_API_KEY", "PHOTON_PROJECT_ID"],
   chalk: ["CHALK_CLIENT_ID", "CHALK_CLIENT_SECRET"],
   factory: ["FACTORY_API_KEY"],
-  // Created from a project's setup page and stored in data/github-app.json, not in env.
+  // Created from Connect GitHub. Local file, or the Supabase "github-app" row on Vercel.
   github: [],
   // ELEVENLABS_PHONE_NUMBER_ID = the Photon SIP number as imported into ElevenLabs (needed by its outbound-call API).
   voice: ["PHOTON_VOICE_NUMBER", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_PHONE_NUMBER_ID"],
@@ -22,7 +22,7 @@ export function integrations(): Record<IntegrationName, IntegrationMode> {
   for (const [name, keys] of Object.entries(REQUIRED) as [IntegrationName, string[]][]) {
     // GitHub has no useful mock: without an app there are simply no webhooks.
     // ANTIBODY_MOCK=on forces mocks even when keys are set (safe local testing: no real texts or calls).
-    const ready = name === "github" ? Boolean(readGithubApp()) : has(...keys);
+    const ready = name === "github" ? githubAppOnDisk() : has(...keys);
     out[name] = process.env.ANTIBODY_MOCK !== "on" && ready ? "live" : name === "github" ? "disabled" : "mock";
   }
   return out;

@@ -14,7 +14,14 @@ export async function POST(request: Request) {
 
   await updateDb((db) => {
     const p = db.projects.find((x) => x.id === projectId);
-    if (p) p.repo = repo;
+    if (!p) return;
+    p.repo = repo;
+    // A project created from the install callback is still named after the GitHub account.
+    const path = p.url.replace(/^https:\/\/github\.com\//, "");
+    if (p.url.startsWith("https://github.com/") && !path.includes("/")) {
+      p.name = repo;
+      p.url = `https://github.com/${repo}`;
+    }
   });
   return Response.redirect(`${webUrl()}/connect/${projectId}`, 303);
 }

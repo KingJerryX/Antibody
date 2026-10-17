@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
-import { auditCode, auditGithubRepo, mergeFindings, scanUrl } from "@antibody/scanner";
+import { auditGithubRepo, auditRepo, mergeFindings, scanUrl } from "@antibody/scanner";
 import { repoDirFor, verifiedDomains } from "@/lib/server";
 
 function parseTarget(raw: unknown): URL | null {
@@ -44,12 +44,13 @@ export async function POST(request: Request) {
         const repoDir = repoDirFor(target.host);
         const [result, audit] = await Promise.all([
           scanUrl(target.href, { projectId: project.id, verifiedDomains: domains, live: body?.live === true }),
-          isGithubConnected(project) ? auditGithubRepo(project) : repoDir ? auditCode(repoDir, project.id) : undefined,
+          isGithubConnected(project) ? auditGithubRepo(project) : repoDir ? auditRepo(repoDir, project.id) : undefined,
         ]);
         report = { ...result, id: scanId, projectId: project.id, status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
         if (audit && report.status === "done") {
           report.findings = mergeFindings(report.findings, audit.findings);
-          report.passed = [...report.passed, audit.note];
+          if (audit.note) report.passed = [...report.passed, audit.note];
+          if (audit.skipped?.length) report.skipped = [...(report.skipped ?? []), ...audit.skipped];
         }
       } catch (err) {
         report = { id: scanId, projectId: project.id, targetUrl: target.href, status: "error", startedAt: now, finishedAt: new Date().toISOString(), findings: [], passed: [], error: err instanceof Error ? err.message : "Scan failed" };

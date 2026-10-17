@@ -10,6 +10,9 @@ const KINDS = new Set<FindingKind>([
   "sql_injection",
   "xss",
   "missing_security_headers",
+  "bug",
+  "data_leak",
+  "optimization",
 ]);
 const SEVERITIES = new Set<Severity>(["critical", "high", "medium", "low"]);
 

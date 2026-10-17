@@ -1,4 +1,4 @@
-import { appManifest, installUrl, readDb, readGithubApp } from "@antibody/core";
+import { appManifest, installUrl, readDb, readGithubApp, refreshGithubApp } from "@antibody/core";
 import { webUrl } from "@/lib/server";
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -9,10 +9,10 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
  */
 export async function GET(request: Request) {
   const projectId = new URL(request.url).searchParams.get("project") ?? "";
-  if (!(await readDb()).projects.some((p) => p.id === projectId)) return Response.json({ error: "Unknown project" }, { status: 404 });
+  if (projectId && !(await readDb()).projects.some((p) => p.id === projectId)) return Response.json({ error: "Unknown project" }, { status: 404 });
 
-  const app = readGithubApp();
-  if (app) return Response.redirect(installUrl(app, projectId), 302);
+  const stored = await readGithubApp();
+  if (stored) return Response.redirect(installUrl(await refreshGithubApp(stored), projectId), 302);
 
   const action = `https://github.com/settings/apps/new?state=${encodeURIComponent(projectId)}`;
   const manifest = escapeHtml(JSON.stringify(appManifest(webUrl())));

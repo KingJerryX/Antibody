@@ -9,6 +9,7 @@ import type { ActivityEvent, FixProposal, Project, ProjectMemory, ScanReport } f
 //   On Vercel without Supabase the bundle is read-only, so each instance keeps its own copy in /tmp and in memory;
 //   another instance can't see it, so the scan response carries the report for the browser.
 // ponytail: the whole store is one row rewritten per write; split into tables if activity grows past a few MB.
+// The GitHub App private key is a second row, id "github-app", so it is not copied into every project read.
 //
 // Supabase setup (SQL editor, once). RLS on with no policies = only the service role key can touch it:
 //   create table antibody_store (id text primary key, data jsonb not null, version int not null);
@@ -95,6 +96,29 @@ async function rest<T>(query: string, init: { method?: string; prefer?: string; 
   });
   if (!res.ok) throw new Error(`Supabase store ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res.json() as Promise<T>;
+}
+
+export const hasRemoteStore = () => Boolean(supabase());
+
+/** A non-document row in antibody_store, such as the GitHub App key. `id` is a fixed name, never user input. */
+export async function readNamedRow<T>(id: string): Promise<T | undefined> {
+  const rows = await rest<{ data: T }[]>(`id=eq.${id}&select=data`);
+  return rows[0]?.data;
+}
+
+export async function writeNamedRow(id: string, data: unknown): Promise<void> {
+  const existing = await rest<{ id: string }[]>(`id=eq.${id}&select=id`);
+  if (existing.length) {
+    const updated = await rest<unknown[]>(`id=eq.${id}`, { method: "PATCH", prefer: "return=representation", body: { data } });
+    if (!updated.length) throw new Error(`Supabase store: could not save ${id}`);
+    return;
+  }
+  const inserted = await rest<unknown[]>("on_conflict=id", {
+    method: "POST",
+    prefer: "return=representation,resolution=merge-duplicates",
+    body: { id, data, version: 1 },
+  });
+  if (!inserted.length) throw new Error(`Supabase store: could not save ${id}`);
 }
 
 type Row = { data: Db; version: number };

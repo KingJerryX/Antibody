@@ -244,6 +244,60 @@ const CANNED: Record<FindingKind, Canned> = {
  };
 `,
   },
+  bug: {
+    exploit: "the action that throws",
+    confidence: "medium",
+    filesChanged: ["app/api/example/route.ts"],
+    summary: {
+      whatWasWrong: "This code can throw or return the wrong result on a normal request.",
+      whatChanges: "The failing case is handled, and the user sees a clear error instead of a crash.",
+      whatUsersNotice: "That action stops erroring.",
+    },
+    diff: `--- a/app/api/example/route.ts
++++ b/app/api/example/route.ts
+@@ -1,3 +1,7 @@
+ export async function GET() {
+-  return Response.json(await load());
++  try {
++    return Response.json(await load());
++  } catch {
++    return Response.json({ error: "Something went wrong" }, { status: 500 });
++  }
+ }
+`,
+  },
+  data_leak: {
+    exploit: "read the response body",
+    confidence: "medium",
+    filesChanged: ["app/api/example/route.ts"],
+    summary: {
+      whatWasWrong: "A secret, password, stack trace, or private row was written where other people can read it.",
+      whatChanges: "The response and the source no longer include that private value.",
+      whatUsersNotice: "Nothing, unless a page was showing data it should not have.",
+    },
+    diff: `--- a/app/api/example/route.ts
++++ b/app/api/example/route.ts
+@@ -3,2 +3,2 @@ export async function GET() {
+-  return Response.json({ error: err.stack, users });
++  return Response.json({ error: "Something went wrong" }, { status: 500 });
+`,
+  },
+  optimization: {
+    exploit: "load the page and watch how much data comes back",
+    confidence: "medium",
+    filesChanged: ["app/api/example/route.ts"],
+    summary: {
+      whatWasWrong: "This reads every row, or does the same expensive work with no limit.",
+      whatChanges: "The query asks for a page of rows instead of the whole table.",
+      whatUsersNotice: "Pages load faster, and a big account does not pull the entire database into the browser.",
+    },
+    diff: `--- a/app/api/example/route.ts
++++ b/app/api/example/route.ts
+@@ -2,2 +2,2 @@ export async function GET() {
+-  const { data } = await supabase.from("notes").select("*");
++  const { data } = await supabase.from("notes").select("id,title").limit(50);
+`,
+  },
 };
 
 /** Canned patch for a finding. Used when Factory Droid is not connected, including on Vercel. */

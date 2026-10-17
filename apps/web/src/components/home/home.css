@@ -137,7 +137,8 @@
 .ab .field-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 8px; text-align: left; }
 .ab .field-note code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
   
-.ab .field { position: relative; width: min(480px, 100%); margin: 22px auto 0; }
+.ab .field { position: relative; width: min(640px, 100%); margin: 22px auto 0; }
+.ab .scan .btn { flex: none; white-space: nowrap; }
   
 .ab .hero .field-error { text-align: center; }
   

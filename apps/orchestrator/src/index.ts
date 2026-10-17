@@ -220,6 +220,13 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, await notify(projectId, severity as Severity, text, json.active === true, str(json.refId, 100)));
   }
 
+  // Setup page calls this while it is open. The 2s timer does not run when this process is frozen.
+  if (path === "/photon/poll") {
+    const result = await messenger.pollOnce();
+    if (result.error) return send(res, 502, result);
+    return send(res, 200, { ok: true, ...result });
+  }
+
   // Setup page: register a user's phone with Photon so it can text the agent, and remember which line it uses.
   if (path === "/photon/register") {
     const projectId = str(json.projectId, 100);

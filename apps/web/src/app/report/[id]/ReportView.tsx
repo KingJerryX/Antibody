@@ -1,6 +1,6 @@
 "use client";
 
-import type { Finding, ScanReport, Severity } from "@antibody/core";
+import type { Finding, ScanReport } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -8,12 +8,7 @@ import { SEVERITY_ORDER } from "@/components/ui";
 import { useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
 import { useSessionValue } from "@/components/useSessionValue";
-
-const WEIGHT: Record<Severity, number> = { critical: 35, high: 20, medium: 8, low: 3 };
-
-function scoreOf(findings: Finding[]) {
-  return Math.max(0, 100 - findings.reduce((n, f) => n + WEIGHT[f.severity], 0));
-}
+import { LIVE_SKIP_PENALTY, liveChecksSkipped, securityScore } from "@/lib/score";
 
 function joinAnd(items: string[]) {
   if (items.length <= 1) return items[0] ?? "";
@@ -62,19 +57,24 @@ function lede(findings: Finding[]) {
   return "Start with the highest severity. Each finding includes what we saw, why it matters, and a fix you can approve.";
 }
 
-function statusLine(findings: Finding[], s: number) {
+function statusLine(findings: Finding[], s: number, surfaceOnly: boolean) {
   const n = findings.length;
-  if (n === 0) return "Overall status is strong. Every check we ran came back clean.";
-  const onlyLow = findings.every((f) => f.severity === "low");
-  if (s >= 85 && onlyLow && n === 1) return "Overall status is strong. One low severity finding remains.";
-  if (s >= 85 && onlyLow) return `Overall status is strong. ${n} low severity findings remain.`;
-  if (s >= 85) return `Overall status is strong. ${n} finding${n === 1 ? "" : "s"} still open.`;
-  if (s >= 55) return `Needs work. ${n} finding${n === 1 ? "" : "s"} to address.`;
-  return `At risk. ${n} finding${n === 1 ? "" : "s"} to address before this is safe to leave up.`;
+  const base = (() => {
+    if (n === 0) return "Overall status is strong. Every check we ran came back clean.";
+    const onlyLow = findings.every((f) => f.severity === "low");
+    if (s >= 85 && onlyLow && n === 1) return "Overall status is strong. One low severity finding remains.";
+    if (s >= 85 && onlyLow) return `Overall status is strong. ${n} low severity findings remain.`;
+    if (s >= 85) return `Overall status is strong. ${n} finding${n === 1 ? "" : "s"} still open.`;
+    if (s >= 55) return `Needs work. ${n} finding${n === 1 ? "" : "s"} to address.`;
+    return `At risk. ${n} finding${n === 1 ? "" : "s"} to address before this is safe to leave up.`;
+  })();
+  if (!surfaceOnly) return base;
+  if (n === 0) return "Surface checks came back clean. Live API checks did not run, so this number is not a full review.";
+  return `${base} Live API checks did not run.`;
 }
 
 function present(f: Finding) {
-  const names = headerNames(f);
+  const names = f.title === "Protective HTTP headers" ? headerNames(f) : null;
   if (names) {
     const list = joinAnd(names);
     return {
@@ -139,7 +139,7 @@ export function ReportView() {
         ) : scan.status === "error" ? (
           <Failed scan={scan} />
         ) : (
-          <Done scan={scan} findings={findings} offline={health?.orchestrator === "down"} canFix={data?.canFix === true} />
+          <Done scan={scan} findings={findings} offline={health?.fixes === "offline"} canFix={data?.canFix === true} />
         )}
       </div>
     </div>
@@ -170,19 +170,26 @@ function Failed({ scan }: { scan: ScanReport }) {
 }
 
 function Done({ scan, findings, offline, canFix }: { scan: ScanReport; findings: Finding[]; offline: boolean; canFix: boolean }) {
-  const s = scoreOf(findings);
+  const surfaceOnly = liveChecksSkipped(scan.skipped);
+  const s = securityScore(findings, scan.skipped);
   const tone = s >= 85 ? "" : s >= 55 ? "warn" : "bad";
   return (
     <div className="report">
       <aside className="score-card" aria-label="Security score">
         <p className="kicker">Security score</p>
         <p className={`figure ${tone}`}>{s}</p>
-        <p className="status-line">{statusLine(findings, s)}</p>
+        <p className="status-line">{statusLine(findings, s, surfaceOnly)}</p>
         <div className="score-rows">
           <div className="row">
             <span>Open findings</span>
             <b>{findings.length}</b>
           </div>
+          {surfaceOnly && (
+            <div className="row">
+              <span>Live checks not run</span>
+              <b>−{LIVE_SKIP_PENALTY}</b>
+            </div>
+          )}
           <details>
             <summary>
               <span>Passed checks</span>

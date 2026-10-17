@@ -8,8 +8,8 @@ export async function GET(request: Request) {
   if (!code) return Response.json({ error: "Missing code from GitHub" }, { status: 400 });
 
   const app = await convertManifestCode(code);
-  saveGithubApp(app);
-  // Straight on to installing it, if we know which project asked.
-  const known = (await readDb()).projects.some((p) => p.id === projectId);
-  return Response.redirect(known ? installUrl(app, projectId) : app.html_url, 302);
+  await saveGithubApp(app);
+  // Install next. A known project id rides along as state; an empty one is filled in after GitHub returns.
+  const known = projectId && (await readDb()).projects.some((p) => p.id === projectId);
+  return Response.redirect(installUrl(app, known ? projectId : ""), 302);
 }

@@ -1,7 +1,8 @@
 import type { Finding, FindingKind, ScanReport, Severity } from "@antibody/core";
 import { newId } from "@antibody/core";
 import { findSupabase, redact, scanSecrets } from "./secrets.ts";
-export { auditCode, auditGithubRepo, mergeFindings } from "./code-audit.ts";
+import { inspectSurface, probeOwned } from "./surface.ts";
+export { auditCode, auditGithubRepo, auditRepo, mergeFindings } from "./code-audit.ts";
 
 export interface ScanOpts {
   projectId: string;
@@ -69,7 +70,8 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   // A bundle that won't load just isn't scanned.
   const texts = await Promise.all(bundles.map((src) => fetchImpl(src).then((r) => r.text()).catch(() => "")));
   // A source map linked from a bundle is already public. Same origin only; its sourcesContent is the app's own code.
-  const maps = await sourceMaps(fetchImpl, bundles, texts, origin);
+  const mapped = await sourceMaps(fetchImpl, bundles, texts, origin);
+  const maps = mapped.flatMap((m) => m.texts);
   const blob = [html, ...texts, ...maps].join("\n");
   const discovered = discoverApiPaths(blob);
 
@@ -87,22 +89,12 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   }
   if (!secretHits.length) passed.push("secret_scan");
 
-  // Security headers
-  const missing = missingHeaders(headers, origin);
-  if (missing.length) {
-    findings.push(
-      mk("missing_security_headers", "low", "Protective HTTP headers", {
-        plainEnglish:
-          "The deployed app is missing browser protection headers. This finding is low severity, but addressing it closes avoidable gaps.",
-        impact:
-          "These headers help browsers resist clickjacking and content sniffing. A suitable Content Security Policy adds another layer of protection.",
-        evidence: `Missing: ${missing.join(", ")}`,
-        fixHint: "Set the response headers in Next.js, deploy, and scan again. Tailor the policy to your app's resources.",
-      }),
-    );
-  } else {
-    passed.push("security_headers");
-  }
+  // Headers, cookies, and the app's own scripts. No extra requests.
+  const exposedMaps = mapped.filter((m) => m.texts.length > 0 && !VENDOR.test(m.scriptUrl)).map((m) => m.url);
+  const appCode = texts.filter((_, i) => !VENDOR.test(bundles[i] ?? ""));
+  const surface = inspectSurface({ html, headers, origin, host: target.host, appCode, sourceMapUrls: exposedMaps });
+  for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
+  passed.push(...surface.passed);
 
   // --- Active: a host on the allowlist, or one the owner just proved they can edit. ---
   const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
@@ -157,6 +149,10 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   if (rate) findings.push(rate);
   else passed.push("rate_limit");
 
+  const ownedProbe = await probeOwned(probe, origin);
+  for (const issue of ownedProbe.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
+  passed.push(...ownedProbe.passed);
+
   return report({ status: "done", findings, passed, skipped });
 }
 
@@ -191,17 +187,6 @@ function sameOriginScripts(html: string, origin: string, base: string): string[]
     if (abs?.origin === origin) out.add(abs.href);
   }
   return [...out];
-}
-
-function missingHeaders(headers: Headers, origin: string): string[] {
-  const missing: string[] = [];
-  const csp = headers.get("content-security-policy");
-  if (!csp) missing.push("Content-Security-Policy");
-  // CSP frame-ancestors covers X-Frame-Options.
-  if (!headers.get("x-frame-options") && !/frame-ancestors/i.test(csp ?? "")) missing.push("X-Frame-Options");
-  if (!headers.get("x-content-type-options")) missing.push("X-Content-Type-Options");
-  if (origin.startsWith("https://") && !headers.get("strict-transport-security")) missing.push("Strict-Transport-Security");
-  return missing;
 }
 
 /** Each path in `paths` for which `check` resolves true, in order, checked in parallel. */
@@ -330,21 +315,26 @@ function mapUrl(js: string, scriptUrl: string, origin: string): string | undefin
 }
 
 /** Same-origin maps only. `sourcesContent` is inlined original source, which is where keys hide. */
-async function sourceMaps(fetchImpl: typeof fetch, scripts: string[], bodies: string[], origin: string): Promise<string[]> {
-  const urls: string[] = [];
+async function sourceMaps(
+  fetchImpl: typeof fetch,
+  scripts: string[],
+  bodies: string[],
+  origin: string,
+): Promise<{ url: string; scriptUrl: string; texts: string[] }[]> {
+  const urls: { url: string; scriptUrl: string }[] = [];
   for (let i = 0; i < scripts.length && urls.length < MAX_MAPS; i++) {
     const u = mapUrl(bodies[i] ?? "", scripts[i], origin);
-    if (u && !urls.includes(u)) urls.push(u);
+    if (u && !urls.some((x) => x.url === u)) urls.push({ url: u, scriptUrl: scripts[i] });
   }
   const texts = await Promise.all(
     urls.map((u) =>
-      fetchImpl(u)
+      fetchImpl(u.url)
         .then((r) => (r.ok ? r.text() : ""))
         .then((t) => t.slice(0, MAX_MAP_CHARS))
         .catch(() => ""),
     ),
   );
-  return texts.flatMap(expandMap);
+  return urls.map((u, i) => ({ ...u, texts: expandMap(texts[i] ?? "") }));
 }
 
 function expandMap(text: string): string[] {

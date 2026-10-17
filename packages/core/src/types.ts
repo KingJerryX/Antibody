@@ -12,7 +12,10 @@ export type FindingKind =
   | "idor"
   | "sql_injection"
   | "xss"
-  | "missing_security_headers";
+  | "missing_security_headers"
+  | "bug"
+  | "data_leak"
+  | "optimization";
 
 export type DetectedBy = "url_scan" | "code_audit" | "pr_check" | "live_shield";
 

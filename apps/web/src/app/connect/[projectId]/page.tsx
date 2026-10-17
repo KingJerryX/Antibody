@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { installationRepos, readGithubApp, startCodeFor } from "@antibody/core";
 import { Card, Icon } from "@/components/ui";
-import { readStore } from "@/lib/server";
+import { proxyToOrchestrator, readStore } from "@/lib/server";
 import { CopyButton, RefreshWhile } from "./ConnectClient";
 
 export const metadata = { title: "Set up | Antibody" };
@@ -22,17 +22,51 @@ export default function ConnectPage({ params, searchParams }: { params: Promise<
 /** "+16283166196" -> "+1 (628) 316-6196"; anything else is shown as-is. */
 const prettyPhone = (n: string) => n.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, "+1 ($1) $2-$3");
 
+/** Photon error text is safe to show; the orchestrator's own 503 includes an internal URL, so keep that generic. */
+function inboxNote(status: number, body: string): string {
+  if (status === 502) {
+    try {
+      const msg = JSON.parse(body).error;
+      if (typeof msg === "string" && msg.length < 180 && !/key|bearer|secret|token/i.test(msg)) return `Couldn't check iMessage: ${msg}`;
+    } catch {
+      /* body was not JSON */
+    }
+  }
+  return "Couldn't check iMessage just now. This page retries every few seconds.";
+}
+
 async function Setup({ params, searchParams }: { params: Promise<{ projectId: string }>; searchParams: Search }) {
   await connection();
   const { projectId } = await params;
-  const db = await readStore();
+  let db = await readStore();
   const project = db.projects.find((p) => p.id === projectId);
   if (!project) notFound();
 
   // The START code proves a phone belongs to someone who can see this page (localhost only).
   const code = await startCodeFor(projectId);
-  const memory = db.memory.find((m) => m.projectId === projectId);
-  const linked = memory?.teammates ?? [];
+  let memory = db.memory.find((m) => m.projectId === projectId);
+  let linked = memory?.teammates ?? [];
+  let inboxError: string | undefined;
+  let inboxEmpty = false;
+  // The orchestrator only sees texts while it is awake. Ask it to read the inbox before deciding the step is still waiting.
+  if (!linked.length) {
+    const res = await proxyToOrchestrator("/photon/poll", {}).catch(() => undefined);
+    const body = res ? await res.text() : "";
+    if (res?.ok) {
+      console.log(`[photon] poll ${body.slice(0, 500)}`);
+      try {
+        const parsed = JSON.parse(body) as { inbox?: number; handled?: number };
+        inboxEmpty = !parsed.handled && typeof parsed.inbox === "number";
+      } catch {
+        /* poll body was not JSON */
+      }
+    } else console.error(`[photon] poll ${res?.status ?? "down"} ${body.slice(0, 200)}`);
+    if (!res?.ok) inboxError = inboxNote(res?.status ?? 503, body);
+    db = await readStore();
+    memory = db.memory.find((m) => m.projectId === projectId);
+    linked = memory?.teammates ?? [];
+    if (linked.length) inboxError = undefined;
+  }
   // Phones registered with Photon from this page, each with the Antibody line Photon assigned it.
   const registered = memory?.phoneLines ?? [];
   const phoneError = (await searchParams).phoneError?.slice(0, 300);
@@ -94,7 +128,17 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
                   >
                     <Icon name="message" className="h-4 w-4" /> Text it now
                   </a>
-                  <p className="mt-2 text-xs text-slate-500">Antibody replies to confirm. Waiting for your text…</p>
+                  {inboxError ? (
+                    <p role="alert" className="mt-2 text-xs text-red-300">
+                      {inboxError}
+                    </p>
+                  ) : inboxEmpty ? (
+                    <p role="status" className="mt-2 text-xs text-amber-200/90">
+                      iMessage delivered those texts, but Photon has not stored them on this line yet. Send START one more time and leave this page open.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">Antibody replies to confirm. Waiting for your text…</p>
+                  )}
                 </div>
               ))}
               <p>
@@ -171,6 +215,7 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
       </>
     );
   }
+  const appReady = Boolean(await readGithubApp());
   return (
     <>
       <p>Pick the repo with this site’s code. Antibody audits it and opens its fixes as pull requests you review. No install on your side.</p>
@@ -180,7 +225,7 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
       >
         Connect GitHub
       </a>
-      {!readGithubApp() && (
+      {!appReady && (
         <p className="mt-2 text-xs text-slate-500">First time only: GitHub asks you to create the Antibody app, then which repos it can access.</p>
       )}
     </>

@@ -1,4 +1,4 @@
-import { getInstallation, installationRepos, updateDb } from "@antibody/core";
+import { getInstallation, installationRepos, newId, updateDb } from "@antibody/core";
 import { webUrl } from "@/lib/server";
 
 /**
@@ -12,16 +12,33 @@ export async function GET(request: Request) {
   if (!installationId) return Response.json({ error: "Missing installation_id" }, { status: 400 });
 
   // Proves the installation is real and belongs to our app before trusting the id.
-  await getInstallation(installationId);
+  const installation = await getInstallation(installationId);
   const repos = await installationRepos(installationId);
+  const only = repos.length === 1 ? repos[0].full_name : undefined;
 
+  let redirectId = projectId;
   const found = await updateDb((db) => {
     const p = db.projects.find((x) => x.id === projectId);
     if (!p) return false;
     p.githubInstallationId = installationId;
     // One repo granted: that's the project's repo. Several: the setup page asks which one.
-    p.repo = repos.length === 1 ? repos[0].full_name : repos.some((r) => r.full_name === p.repo) ? p.repo : undefined;
+    p.repo = only ?? (repos.some((r) => r.full_name === p.repo) ? p.repo : undefined);
     return true;
   });
-  return Response.redirect(found ? `${webUrl()}/connect/${projectId}` : webUrl(), 302);
+  if (!found) {
+    redirectId = newId("proj");
+    const login = installation.account.login;
+    await updateDb((db) => {
+      db.projects.push({
+        id: redirectId,
+        name: only ?? login,
+        url: `https://github.com/${only ?? login}`,
+        repo: only,
+        githubInstallationId: installationId,
+        verifiedDomain: false,
+        createdAt: new Date().toISOString(),
+      });
+    });
+  }
+  return Response.redirect(`${webUrl()}/connect/${redirectId}`, 302);
 }

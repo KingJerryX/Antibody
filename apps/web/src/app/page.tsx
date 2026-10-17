@@ -1,9 +1,9 @@
-import type { Severity } from "@antibody/core";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ScanForm } from "@/components/ScanForm";
 import { FeatureRow } from "@/components/home/FeatureRow";
 import { HomeMotion } from "@/components/home/HomeMotion";
+import { securityScore } from "@/lib/score";
 import { readStore } from "@/lib/server";
 
 const NAMES: [string, string][] = [
@@ -13,8 +13,6 @@ const NAMES: [string, string][] = [
   ["GitHub", "The patch"],
   ["ElevenLabs", "The call"],
 ];
-
-const WEIGHT: Record<Severity, number> = { critical: 35, high: 20, medium: 8, low: 3 };
 
 export default function Home() {
   return (
@@ -61,7 +59,7 @@ async function OpenCards() {
   const scan = [...db.scans].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
   const fix = db.fixes.at(-1);
   const project = [...db.projects].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const score = scan ? Math.max(0, 100 - scan.findings.reduce((n, f) => n + WEIGHT[f.severity], 0)) : null;
+  const score = scan ? securityScore(scan.findings, scan.skipped) : null;
   const host = scan ? (URL.parse(scan.targetUrl)?.host ?? scan.targetUrl) : null;
 
   return (

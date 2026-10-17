@@ -40,6 +40,18 @@ function jwtRole(token: string): string | undefined {
   }
 }
 
+/** Same detectors as `scanSecrets`, with each match replaced by its redacted form. */
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const { re } of SECRET_PATTERNS) {
+    re.lastIndex = 0;
+    out = out.replace(re, (m) => redact(m));
+  }
+  JWT_RE.lastIndex = 0;
+  out = out.replace(JWT_RE, (m) => redact(m));
+  return out;
+}
+
 /** Scan one blob of HTML or JS. Dedupes by raw value so the same key in two bundles reports once. */
 export function scanSecrets(text: string): SecretHit[] {
   const seen = new Set<string>();

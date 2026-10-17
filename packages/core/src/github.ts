@@ -4,10 +4,10 @@ import { createSign } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { cloneRepo, git, pushFixBranch } from "./git.ts";
-import { repoRoot } from "./store.ts";
+import { hasRemoteStore, readNamedRow, repoRoot, writeNamedRow } from "./store.ts";
 import type { FixCheck, FixProposal, Project } from "./types.ts";
 
-/** What GitHub returns when the app is created. Lives in data/ (gitignored): it holds the private key. */
+/** What GitHub returns when the app is created. Holds the private key. */
 export interface GithubApp {
   id: number;
   slug: string;
@@ -17,9 +17,12 @@ export interface GithubApp {
 }
 
 const API = "https://api.github.com";
+const APP_ROW = "github-app";
 const appFile = () => join(resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data"), "github-app.json");
 
-export function readGithubApp(): GithubApp | undefined {
+let cached: GithubApp | undefined;
+
+function readAppFile(): GithubApp | undefined {
   try {
     return JSON.parse(readFileSync(appFile(), "utf8")) as GithubApp;
   } catch {
@@ -27,17 +30,32 @@ export function readGithubApp(): GithubApp | undefined {
   }
 }
 
-export function saveGithubApp(app: GithubApp): void {
-  mkdirSync(dirname(appFile()), { recursive: true });
+/** Local-dev signal for the orchestrator startup table. Production reads the Supabase row instead. */
+export const githubAppOnDisk = () => Boolean(readAppFile()?.pem);
+
+export async function readGithubApp(): Promise<GithubApp | undefined> {
+  if (cached?.pem) return cached;
+  const app = hasRemoteStore() ? await readNamedRow<GithubApp>(APP_ROW) : readAppFile();
+  if (app?.pem) cached = app;
+  return app;
+}
+
+export async function saveGithubApp(app: GithubApp): Promise<void> {
   // Only the fields we use; GitHub's response also carries client and webhook secrets we don't need.
-  const { id, slug, name, html_url, pem } = app;
-  writeFileSync(appFile(), JSON.stringify({ id, slug, name, html_url, pem }, null, 2));
+  const saved: GithubApp = { id: app.id, slug: app.slug, name: app.name, html_url: app.html_url, pem: app.pem };
+  if (hasRemoteStore()) await writeNamedRow(APP_ROW, saved);
+  else {
+    mkdirSync(dirname(appFile()), { recursive: true });
+    writeFileSync(appFile(), JSON.stringify(saved, null, 2));
+  }
+  cached = saved;
 }
 
 /** Manifest for GitHub's "create an app from a manifest" flow. No webhook: localhost can't receive one. */
 export function appManifest(webUrl: string) {
   return {
-    name: `Antibody ${crypto.randomUUID().slice(0, 6)}`,
+    name: "Antibody Security",
+    description: "Scans your app, writes a fix, and opens a pull request for you to review.",
     url: webUrl,
     redirect_url: `${webUrl}/api/github/created`,
     setup_url: `${webUrl}/api/github/installed`,
@@ -77,20 +95,20 @@ async function gh<T>(path: string, token: string, init: RequestInit = {}): Promi
   return (await res.json()) as T;
 }
 
-function requireApp(): GithubApp {
-  const app = readGithubApp();
+async function requireApp(): Promise<GithubApp> {
+  const app = await readGithubApp();
   if (!app) throw new Error("The Antibody GitHub App hasn't been created yet.");
   return app;
 }
 
 /** Throws unless the installation really belongs to our app (guards the install callback). */
 export async function getInstallation(installationId: number): Promise<{ id: number; account: { login: string } }> {
-  return gh(`/app/installations/${installationId}`, appJwt(requireApp()));
+  return gh(`/app/installations/${installationId}`, appJwt(await requireApp()));
 }
 
 /** Installation access token: acts on the repos the user granted, expires in an hour. */
 export async function installationToken(installationId: number): Promise<string> {
-  const { token } = await gh<{ token: string }>(`/app/installations/${installationId}/access_tokens`, appJwt(requireApp()), { method: "POST" });
+  const { token } = await gh<{ token: string }>(`/app/installations/${installationId}/access_tokens`, appJwt(await requireApp()), { method: "POST" });
   return token;
 }
 
@@ -100,6 +118,17 @@ export async function installationRepos(installationId: number): Promise<{ full_
     await installationToken(installationId),
   );
   return repositories;
+}
+
+/** Picks up a rename made in GitHub's app settings, so the install link follows the new slug. */
+export async function refreshGithubApp(app: GithubApp): Promise<GithubApp> {
+  const res = await fetch(`${API}/app`, { headers: ghHeaders(appJwt(app)) });
+  if (!res.ok) return app;
+  const live = (await res.json()) as { id?: number; slug?: string; name?: string; html_url?: string };
+  if (!live.html_url || (live.slug === app.slug && live.name === app.name && live.html_url === app.html_url)) return app;
+  const saved: GithubApp = { ...app, id: live.id ?? app.id, slug: live.slug || app.slug, name: live.name || app.name, html_url: live.html_url };
+  await saveGithubApp(saved);
+  return saved;
 }
 
 export const installUrl = (app: GithubApp, projectId: string) =>
@@ -134,7 +163,7 @@ async function botIdentity(app: GithubApp): Promise<{ name: string; email: strin
  */
 export async function openPullRequest(project: Project, fix: FixProposal, title: string): Promise<string> {
   if (!connected(project)) throw new Error(`${project.name} has no connected GitHub repo`);
-  const app = requireApp();
+  const app = await requireApp();
   const token = await installationToken(project.githubInstallationId);
   const scratch = join(repoRoot(), ".antibody-work");
   mkdirSync(scratch, { recursive: true });

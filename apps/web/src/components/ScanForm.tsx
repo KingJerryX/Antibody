@@ -69,6 +69,7 @@ export function ScanForm() {
           placeholder="http://localhost:4000"
           aria-describedby={error ? errorId : undefined}
         />
+        <a className="btn btn-ghost btn-sm" href="/api/github/connect">Connect GitHub</a>
         <button className="btn btn-light btn-sm" type="submit" disabled={busy}>
           {busy ? "Scanning…" : "Scan"}
         </button>

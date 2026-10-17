@@ -112,12 +112,16 @@ describe("scanUrl passive", () => {
     expect(secret!.detectedBy).toBe("url_scan");
   });
 
-  it("reports missing security headers as one low finding", async () => {
+  it("splits missing browser protections by severity instead of one low header finding", async () => {
     const { impl } = mockFetch([{ test: (u) => u === "https://site.com/", body: `<html></html>` }]);
     const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
-    const h = r.findings.filter((f) => f.kind === "missing_security_headers");
-    expect(h).toHaveLength(1);
-    expect(h[0].severity).toBe("low");
+    const titles = r.findings.map((f) => f.title);
+    expect(titles).toContain("No Content Security Policy");
+    expect(titles).toContain("HTTPS is not locked in");
+    expect(r.findings.find((f) => f.title === "No Content Security Policy")?.severity).toBe("medium");
+    expect(r.findings.find((f) => f.title === "HTTPS is not locked in")?.severity).toBe("medium");
+    expect(r.findings.some((f) => f.title === "Protective HTTP headers")).toBe(false);
+    expect(r.passed).not.toContain("security_headers");
   });
 
   it("passes the header check when all headers are present", async () => {
@@ -272,6 +276,25 @@ describe("scanUrl active gating", () => {
     const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     expect(calls.some((c) => c.url === "https://site.com/app.js.map")).toBe(true);
     expect(r.findings.some((f) => f.kind === "secret_in_bundle")).toBe(true);
+    expect(r.findings.some((f) => f.title === "Original source code is public")).toBe(true);
+  });
+
+  it("flags a public env file on a verified host and keeps the body out of the report", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "http://localhost:4000/", body: "<html></html>", headers: SECURE_HEADERS },
+      { test: (u) => u === "http://localhost:4000/.env", body: "DATABASE_URL=postgres://user:secretpass@localhost/db\n" },
+    ]);
+    const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: ["localhost:4000"], fetchImpl: impl });
+    const env = r.findings.find((f) => f.title.includes("Environment file"));
+    expect(calls.some((c) => c.url === "http://localhost:4000/.env")).toBe(true);
+    expect(env?.severity).toBe("critical");
+    expect(env?.evidence).not.toContain("secretpass");
+  });
+
+  it("does not call a public site insecure just because it is plain HTTP on localhost", async () => {
+    const { impl } = mockFetch([{ test: (u) => u === "http://localhost:4000/", body: "<html></html>", headers: SECURE_HEADERS }]);
+    const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    expect(r.findings.some((f) => f.title === "Site is served over plain HTTP")).toBe(false);
   });
 
   it("runs live checks on an unlisted host once the page carries the verify tag", async () => {

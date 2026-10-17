@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { cloneProjectRepo, newId, repoRoot, type Finding, type FindingKind, type Project, type Severity } from "@antibody/core";
+import { reviewRepo, type ReviewResult } from "./repo-review.ts";
 
 const run = promisify(execFile);
 const AUDIT_TIMEOUT_MS = 120_000;
@@ -29,6 +30,9 @@ const titleFor = (kind: FindingKind, route: string | undefined): string => {
     case "missing_rate_limit": return `${where} has no rate limit`;
     case "unverified_webhook": return `${where} trusts webhooks without checking the signature`;
     case "xss": return "Raw HTML is injected into the page";
+    case "bug": return "This code can break on a normal request";
+    case "data_leak": return "Private data is written where other people can read it";
+    case "optimization": return "This loads more data than the page needs";
     default: return "Risky code pattern";
   }
 };
@@ -73,15 +77,29 @@ export async function auditCode(repoDir: string, projectId: string): Promise<{ f
   return { findings, note: `Code audit (Semgrep): ${findings.length} issue${findings.length === 1 ? "" : "s"} in source` };
 }
 
+const findingKey = (f: Finding) => `${f.kind}|${f.location?.file ?? ""}|${f.location?.line ?? ""}`;
+
+/** Semgrep, then pattern checks and Grok. Semgrep stays separate so fix verification does not call the model. */
+export async function auditRepo(repoDir: string, projectId: string): Promise<ReviewResult> {
+  const [semgrep, review] = await Promise.all([auditCode(repoDir, projectId), reviewRepo(repoDir, projectId)]);
+  const seen = new Set(semgrep.findings.map(findingKey));
+  const extra = review.findings.filter((f) => !seen.has(findingKey(f)));
+  return {
+    findings: [...semgrep.findings, ...extra],
+    note: [semgrep.note, review.note].filter(Boolean).join(". "),
+    skipped: review.skipped,
+  };
+}
+
 /** Audits a fresh clone of the project's connected GitHub repo, then deletes the clone. */
-export async function auditGithubRepo(project: Project): Promise<{ findings: Finding[]; note: string }> {
+export async function auditGithubRepo(project: Project): Promise<ReviewResult> {
   const scratch = join(repoRoot(), ".antibody-work");
   mkdirSync(scratch, { recursive: true });
   const work = mkdtempSync(join(scratch, "scan-"));
   try {
     const dir = join(work, "repo");
     await cloneProjectRepo(project, dir);
-    const audit = await auditCode(dir, project.id);
+    const audit = await auditRepo(dir, project.id);
     return { ...audit, note: `${audit.note} (${project.repo} on GitHub)` };
   } catch (err) {
     return { findings: [], note: `Code audit skipped: couldn't clone ${project.repo} (${(err as Error).message.split("\n")[0]})` };
