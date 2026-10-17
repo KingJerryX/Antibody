@@ -51,10 +51,25 @@ export interface ScanReport {
 
 export type FixCheckName = "exploit_test" | "behavior_tests" | "preview_replay" | "second_review";
 
+export interface ReplayedResponse {
+  status: number;
+  /** First few hundred characters of the body. */
+  body: string;
+}
+
+/** The finding's probe sent to the original app and to the patched copy. */
+export interface ExploitReplay {
+  request: string;
+  before: ReplayedResponse;
+  after: ReplayedResponse;
+}
+
 export interface FixCheck {
   name: FixCheckName;
   status: "pending" | "pass" | "fail" | "skipped";
   detail: string;
+  /** Set on exploit_test when the probe is a plain GET that can be replayed. */
+  replay?: ExploitReplay;
 }
 
 export interface FixProposal {
@@ -95,6 +110,7 @@ export type ActivityType =
   | "call"
   | "block"
   | "approval"
+  | "rejection"
   | "undo";
 
 export interface ActivityEvent {

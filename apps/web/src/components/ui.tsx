@@ -65,6 +65,7 @@ export const ACTIVITY_META: Record<ActivityType, { label: string; icon: IconName
   call: { label: "Phone call", icon: "phone", tone: "text-emerald-300 bg-emerald-400/10" },
   block: { label: "Attack blocked", icon: "ban", tone: "text-red-300 bg-red-500/15" },
   approval: { label: "Approved", icon: "approve", tone: "text-mint bg-mint/10" },
+  rejection: { label: "Rejected", icon: "x", tone: "text-slate-300 bg-white/5" },
   undo: { label: "Rolled back", icon: "undo", tone: "text-amber-200 bg-amber-400/10" },
 };
 

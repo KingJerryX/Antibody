@@ -8,8 +8,11 @@ import { verifyFix } from "./verify.ts";
 
 export type FixDraft = Pick<FixProposal, "summary" | "diff" | "filesChanged" | "linesChanged" | "confidence" | "checks" | "author">;
 
+/** Partial results saved while a draft is still being written and verified. */
+export type DraftProgress = (patch: Partial<FixDraft>) => void;
+
 export interface Fixer {
-  draft(finding: Finding, instructions?: string): Promise<FixDraft>;
+  draft(finding: Finding, instructions?: string, onProgress?: DraftProgress): Promise<FixDraft>;
 }
 
 const countLines = (diff: string) =>
@@ -36,7 +39,7 @@ const FIX_SCHEMA = {
 };
 
 export class DroidFixer implements Fixer {
-  async draft(finding: Finding, instructions?: string): Promise<FixDraft> {
+  async draft(finding: Finding, instructions?: string, onProgress: DraftProgress = () => {}): Promise<FixDraft> {
     // Droid works on a throwaway copy, never the real checkout. It lives under the repo (gitignored)
     // so the patched copy can resolve the repo's node_modules when verifyFix starts it.
     const scratch = join(repoRoot(), ".antibody-work");
@@ -96,16 +99,15 @@ export class DroidFixer implements Fixer {
       // above it, so the patched copy can't start while it has its own .git. The diff is captured.
       rmSync(join(cwd, ".git"), { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
       const linesChanged = countLines(diff);
-      return {
-        summary: out.summary,
-        confidence: out.confidence,
-        diff,
-        filesChanged: files,
-        linesChanged,
-        author: "droid",
-        // Antibody's own verification of the patched copy; Droid's claims about its own tests don't count.
-        checks: await verifyFix(finding, cwd, linesChanged, files),
-      };
+      const draft = { summary: out.summary, confidence: out.confidence, diff, filesChanged: files, linesChanged, author: "droid" as const };
+      onProgress({ ...draft, checks: [] });
+      // Antibody's own verification of the patched copy; Droid's claims about its own tests don't count.
+      const settled: FixCheck[] = [];
+      const checks = await verifyFix(finding, cwd, linesChanged, files, (check) => {
+        settled.push(check);
+        onProgress({ checks: [...settled] });
+      });
+      return { ...draft, checks };
     } finally {
       // Windows can hold file handles briefly after the dev server exits.
       rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
