@@ -14,6 +14,7 @@
     "dev:web": "npm run dev -w @antibody/web",
     "dev:orchestrator": "npm run dev -w @antibody/orchestrator",
     "dev:sample": "npm run dev -w @antibody/vuln-app",
+    "dev:guestlist": "npm run dev -w @antibody/guestlist",
     "dev:shielded": "npm run dev:protected -w @antibody/vuln-app",
     "dev:all": "node scripts/dev-all.mjs",
     "eval": "node --import tsx evals/run.ts",

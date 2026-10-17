@@ -84,6 +84,15 @@ describe("secret detectors (unit)", () => {
     expect(s.anonKey).toBe(ANON);
   });
 
+  it("finds github, slack, database urls, and private keys", () => {
+    const github = ["ghp", FILLER].join("_");
+    const slack = ["xoxb", FILLER].join("-");
+    const db = "postgres://user:secretpass@localhost/db";
+    const key = "-----BEGIN PRIVATE KEY-----";
+    const kinds = scanSecrets(`${github} ${slack} ${db} ${key}`).map((h) => h.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["GitHub token", "Slack token", "Database URL", "Private key"]));
+  });
+
   it("redact keeps only the first 4 chars", () => {
     expect(redact("abcdefgh")).toBe("abcd…");
     expect(redact("ab")).toBe("ab");
@@ -139,7 +148,8 @@ describe("scanUrl active gating", () => {
     expect(calls.every((c) => c.url === "https://notmine.com/")).toBe(true);
     expect(calls.some((c) => c.url.includes("/rest/v1/"))).toBe(false);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
-    expect(r.passed).toContain("verify domain ownership to run active checks");
+    expect(r.skipped?.some((s) => s.startsWith("Live checks did not run"))).toBe(true);
+    expect(r.passed).not.toContain("verify domain ownership to run active checks");
   });
 
   it("runs active checks against a verified host and reports what it finds", async () => {
@@ -198,7 +208,8 @@ describe("scanUrl active gating", () => {
     ]);
     const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: ["localhost:4000"], fetchImpl: impl });
     expect(calls.some((c) => c.url.startsWith(SUPA_URL))).toBe(false);
-    expect(r.passed).toContain("verify abcdefgh.supabase.co to probe Supabase RLS");
+    expect(r.skipped?.some((s) => s.includes("abcdefgh.supabase.co"))).toBe(true);
+    expect(r.passed?.some((s) => s.includes("supabase"))).toBe(false);
   });
 
   it("never follows an active-probe redirect onto an unverified host (real fetch)", async () => {
@@ -230,6 +241,62 @@ describe("scanUrl active gating", () => {
     ]);
     const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     expect(r.findings.some((f) => f.kind === "secret_in_bundle")).toBe(true);
+  });
+
+  it("probes an /api path named in the bundle when the host is verified", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "http://localhost:4000/", body: `<script src="/app.js"></script>`, headers: SECURE_HEADERS },
+      { test: (u) => u === "http://localhost:4000/app.js", body: `fetch("/api/incidents")` },
+      { test: (u) => u === "http://localhost:4000/api/incidents", json: { incidents: [{ id: 1 }] } },
+    ]);
+    const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: ["localhost:4000"], fetchImpl: impl });
+    expect(calls.some((c) => c.url === "http://localhost:4000/api/incidents")).toBe(true);
+    expect(r.findings.some((f) => f.kind === "unprotected_route" && f.title.includes("/api/incidents"))).toBe(true);
+  });
+
+  it("does not probe a discovered /api path on an unverified host", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "https://site.com/", body: `<script src="/app.js"></script>`, headers: SECURE_HEADERS },
+      { test: (u) => u === "https://site.com/app.js", body: `fetch("/api/incidents")` },
+    ]);
+    await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    expect(calls.some((c) => c.url.includes("/api/incidents"))).toBe(false);
+  });
+
+  it("reads a same-origin source map into the secret scan", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "https://site.com/", body: `<script src="/app.js"></script>`, headers: SECURE_HEADERS },
+      { test: (u) => u === "https://site.com/app.js", body: "function a(){}\n//# sourceMappingURL=/app.js.map" },
+      { test: (u) => u === "https://site.com/app.js.map", body: JSON.stringify({ sourcesContent: [`const k="${OPENAI}"`] }) },
+    ]);
+    const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    expect(calls.some((c) => c.url === "https://site.com/app.js.map")).toBe(true);
+    expect(r.findings.some((f) => f.kind === "secret_in_bundle")).toBe(true);
+  });
+
+  it("runs live checks on an unlisted host once the page carries the verify tag", async () => {
+    const { impl, calls } = mockFetch([
+      {
+        test: (u) => u === "https://mine.example/",
+        body: `<meta name="antibody-verify" content="mine.example"><html></html>`,
+        headers: SECURE_HEADERS,
+      },
+      { test: (u) => u === "https://mine.example/api/admin", json: { users: 3 } },
+    ]);
+    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], live: true, fetchImpl: impl });
+    expect(calls.some((c) => c.url === "https://mine.example/api/admin")).toBe(true);
+    expect(r.findings.some((f) => f.kind === "unprotected_route")).toBe(true);
+    expect(r.skipped ?? []).toEqual([]);
+  });
+
+  it("refuses live checks when the owner opt-in has no proof on the site", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "https://mine.example/", body: "<html></html>", headers: SECURE_HEADERS },
+    ]);
+    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], live: true, fetchImpl: impl });
+    expect(calls.some((c) => c.url.includes("/.well-known/antibody-verify"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
+    expect(r.skipped?.some((s) => s.includes("antibody-verify"))).toBe(true);
   });
 
   it("errors cleanly on an unreachable target", async () => {

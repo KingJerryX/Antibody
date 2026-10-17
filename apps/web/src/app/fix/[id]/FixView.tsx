@@ -2,7 +2,7 @@
 
 import type { FixCheck, FixCheckName, FixProposal } from "@antibody/core";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, Icon, type IconName } from "@/components/ui";
 import { usePoll } from "@/components/usePoll";
 import { parseDiff } from "@/lib/diff";
@@ -33,7 +33,7 @@ const STATUS_LABEL: Record<FixProposal["status"], string> = {
 
 export function FixView() {
   const { id } = useParams<{ id: string }>();
-  const { data: fix, error, setData, refresh } = usePoll<FixProposal>(
+  const { data, error, setData, refresh } = usePoll<FixProposal>(
     `/api/fixes/${id}`,
     2000,
     // Also keep polling while a just-approved fix waits for its pull request.
@@ -42,11 +42,29 @@ export function FixView() {
       f.checks.some((c) => c.status === "pending") ||
       (f.status === "approved" && !f.prUrl && (!f.prNote || f.prNote.startsWith("Opening"))),
   );
+  const [fallback, setFallback] = useState<FixProposal>();
+  const [checked, setChecked] = useState(false);
+
+  // Written by Fix it on Vercel, where the next request may not see the file this one wrote.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(`antibody-fix:${id}`);
+      if (raw) setFallback(JSON.parse(raw) as FixProposal);
+    } catch {
+      /* a bad cache just means we wait on the poll */
+    }
+    setChecked(true);
+  }, [id]);
+
+  const fix = data ?? fallback;
+  useEffect(() => {
+    if (fix) sessionStorage.setItem(`antibody-fix:${id}`, JSON.stringify(fix));
+  }, [fix, id]);
 
   if (!fix) {
     return (
       <div className="mx-auto max-w-6xl px-5 py-16">
-        <p className="text-slate-400">{error ? `Couldn't load this fix: ${error}` : "Loading fix…"}</p>
+        <p className="text-slate-400">{checked && error ? `Couldn't load this fix: ${error}` : "Loading fix…"}</p>
       </div>
     );
   }
@@ -161,13 +179,16 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
       const res = await fetch(`/api/fixes/${fix.id}/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(action === "revise" ? { instructions } : {}),
+        body: JSON.stringify({ ...(action === "revise" ? { instructions } : {}), fix }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
       onUpdate(data?.id ? data : undefined);
       if (action === "revise") setInstructions("");
-      setNote({ ok: true, text: action === "approve" ? "Approved. With GitHub connected, Antibody opens a pull request in a few seconds. You merge it in GitHub." : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
+      const approved = fix.prUrl
+        ? "Approved. Antibody opens the pull request; the permanent merge happens in GitHub."
+        : "Approved. If GitHub is connected, Antibody opens a pull request in a few seconds. You merge it in GitHub.";
+      setNote({ ok: true, text: action === "approve" ? approved : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
     } catch (err) {
       setNote({ ok: false, text: err instanceof Error ? err.message : "Request failed" });
     } finally {
@@ -188,7 +209,7 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
         {fix.prNote && !fix.prUrl && <span className="text-sm text-slate-400">{fix.prNote}</span>}
         {fix.previewUrl && <a href={fix.previewUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">Open preview</a>}
       </div>
-      <p className="mt-3 text-sm text-slate-400">Approving opens a pull request. Permanent merges happen in GitHub, so you can always roll back.</p>
+      <p className="mt-3 text-sm text-slate-400">{fix.prUrl ? "Approving opens a pull request. Permanent merges happen in GitHub, so you can always roll back." : "Approving records your decision. A pull request is opened only when GitHub is connected."}</p>
 
       <form
         className="mt-5"

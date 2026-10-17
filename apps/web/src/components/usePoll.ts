@@ -15,7 +15,9 @@ export function usePoll<T>(url: string, ms: number, keepGoing: (data: T) => bool
     const run = async () => {
       try {
         const res = await fetch(url, { cache: "no-store" });
-        const body = await res.json();
+        const text = await res.text();
+        if (!text) throw new Error(res.ok ? "Empty response" : res.statusText);
+        const body = JSON.parse(text) as T & { error?: string };
         if (!res.ok) throw new Error(body?.error ?? res.statusText);
         if (stopped) return;
         setData(body);

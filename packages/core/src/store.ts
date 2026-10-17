@@ -3,7 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import type { ActivityEvent, FixProposal, Project, ProjectMemory, ScanReport } from "./types.ts";
 
 // ponytail: one JSON file shared by web + orchestrator on the same machine.
-// Fine for a local demo; move to SQLite/Postgres before multi-process writes or serverless deploys.
+// On Vercel the bundle is read-only, so this process keeps the file in /tmp and in memory.
+// Another instance cannot see that copy; the scan response carries the report for the browser.
 
 export interface Db {
   projects: Project[];
@@ -32,10 +33,17 @@ export function repoRoot(): string {
   }
 }
 
-// ANTIBODY_DATA_DIR is read on every call: tests set it after this module has loaded.
-const dbPath = () => join(resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data"), "db.json");
+type Mem = { __antibodyDb?: Db };
+const mem = () => globalThis as Mem;
 
-export function readDb(): Db {
+// ANTIBODY_DATA_DIR is read on every call: tests set it after this module has loaded.
+// Vercel can only write /tmp, and that directory belongs to one instance.
+const dbPath = () =>
+  process.env.VERCEL ? "/tmp/antibody-db.json" : join(resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data"), "db.json");
+
+function load(): Db {
+  const cached = process.env.VERCEL ? mem().__antibodyDb : undefined;
+  if (cached) return cached;
   try {
     return { ...empty(), ...JSON.parse(readFileSync(dbPath(), "utf8")) };
   } catch {
@@ -43,14 +51,27 @@ export function readDb(): Db {
   }
 }
 
+export function readDb(): Db {
+  const db = load();
+  return process.env.VERCEL && mem().__antibodyDb ? structuredClone(db) : db;
+}
+
 /** Read-modify-write. The temp-file rename keeps readers from seeing a half-written file. */
 export function updateDb<T>(fn: (db: Db) => T): T {
-  const db = readDb();
+  const db = load();
   const result = fn(db);
+  if (process.env.VERCEL) mem().__antibodyDb = db;
   const path = dbPath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.tmp`, JSON.stringify(db, null, 2));
-  renameSync(`${path}.tmp`, path);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(`${path}.tmp`, JSON.stringify(db, null, 2));
+    renameSync(`${path}.tmp`, path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // The deployed app's filesystem is read-only outside /tmp. Keep the in-memory copy.
+    if (process.env.VERCEL && (code === "EROFS" || code === "EPERM" || code === "EACCES")) return result;
+    throw err;
+  }
   return result;
 }
 

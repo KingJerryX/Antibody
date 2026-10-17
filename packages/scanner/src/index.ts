@@ -7,15 +7,23 @@ export interface ScanOpts {
   projectId: string;
   /** Hosts ("host:port") that may be actively probed. Everything else is passive-only. */
   verifiedDomains: string[];
+  /**
+   * The person asked for live checks and will prove they can edit the site
+   * (a meta tag, or /.well-known/antibody-verify). Allowlisted hosts don't need this.
+   */
+  live?: boolean;
   /** Injectable for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
 
-const COMMON_TABLES = ["users", "profiles", "accounts", "customers", "orders", "messages", "notes", "payments"];
+const COMMON_TABLES = ["users", "profiles", "accounts", "customers", "orders", "messages", "notes", "payments", "guests"];
 const ADMIN_PATHS = ["/api/admin", "/api/admin/stats", "/admin", "/api/users"];
-const IDOR_PATHS = ["/api/users/1", "/api/users/2"];
+const IDOR_PATHS = ["/api/users/1", "/api/users/2", "/api/guests/1", "/api/guests/2"];
 // ponytail: cap bundle fetches so a page with 100 scripts can't turn one scan into a crawl.
 const MAX_BUNDLES = 12;
+const MAX_MAPS = 4;
+const MAX_MAP_CHARS = 500_000;
+const MAX_DISCOVERED = 20;
 /** Per request, so one hung endpoint can't hang the whole scan. */
 const REQUEST_TIMEOUT_MS = 10_000;
 const VENDOR = /node_modules|turbopack|polyfill|hmr-client|webpack|framework/i;
@@ -25,17 +33,19 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const base = opts.fetchImpl ?? fetch;
   const fetchImpl: typeof fetch = (input, init) => base(input, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
   const startedAt = new Date().toISOString();
-  const report = (rest: Pick<ScanReport, "status" | "findings" | "passed" | "error">): ScanReport => ({
+  const report = (rest: Pick<ScanReport, "status" | "findings" | "passed" | "error"> & { skipped?: string[] }): ScanReport => ({
     id: newId("scan"),
     projectId: opts.projectId,
     targetUrl,
     startedAt,
     finishedAt: new Date().toISOString(),
+    skipped: [],
     ...rest,
   });
   const fail = (error: string) => report({ status: "error", findings: [], passed: [], error });
   const findings: Finding[] = [];
   const passed: string[] = [];
+  const skipped: string[] = [];
   const mk = finder(opts.projectId, targetUrl);
 
   const target = URL.parse(targetUrl);
@@ -58,7 +68,10 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const bundles = [...all.filter((s) => !VENDOR.test(s)), ...all.filter((s) => VENDOR.test(s))].slice(0, MAX_BUNDLES);
   // A bundle that won't load just isn't scanned.
   const texts = await Promise.all(bundles.map((src) => fetchImpl(src).then((r) => r.text()).catch(() => "")));
-  const blob = [html, ...texts].join("\n");
+  // A source map linked from a bundle is already public. Same origin only; its sourcesContent is the app's own code.
+  const maps = await sourceMaps(fetchImpl, bundles, texts, origin);
+  const blob = [html, ...texts, ...maps].join("\n");
+  const discovered = discoverApiPaths(blob);
 
   // Secrets
   const secretHits = scanSecrets(blob);
@@ -78,21 +91,34 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const missing = missingHeaders(headers, origin);
   if (missing.length) {
     findings.push(
-      mk("missing_security_headers", "low", "Some protective HTTP headers are missing", {
-        plainEnglish: `Your site isn't sending a few headers browsers use to block common attacks: ${missing.join(", ")}.`,
-        impact: `Makes clickjacking and content-sniffing attacks easier. Low on its own, but worth fixing.`,
+      mk("missing_security_headers", "low", "Protective HTTP headers", {
+        plainEnglish:
+          "The deployed app is missing browser protection headers. This finding is low severity, but addressing it closes avoidable gaps.",
+        impact:
+          "These headers help browsers resist clickjacking and content sniffing. A suitable Content Security Policy adds another layer of protection.",
         evidence: `Missing: ${missing.join(", ")}`,
-        fixHint: `Add these response headers (Next.js: in next.config headers()): ${missing.join(", ")}.`,
+        fixHint: "Set the response headers in Next.js, deploy, and scan again. Tailor the policy to your app's resources.",
       }),
     );
   } else {
     passed.push("security_headers");
   }
 
-  // --- Active: only against a verified host. ---
-  if (!opts.verifiedDomains.includes(target.host)) {
-    passed.push("verify domain ownership to run active checks");
-    return report({ status: "done", findings, passed });
+  // --- Active: a host on the allowlist, or one the owner just proved they can edit. ---
+  const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
+  const listed = allow.has(target.host.toLowerCase());
+  let owned = listed;
+  if (!owned && opts.live) {
+    owned = provesOwnership(html, target.host) || (await wellKnown(fetchImpl, origin, target.host));
+  }
+  if (!owned) {
+    const tag = `<meta name="antibody-verify" content="${target.host}">`;
+    skipped.push(
+      opts.live
+        ? `Live checks did not run. Add ${tag} to the page, or publish ${target.host} at /.well-known/antibody-verify, then scan again with Run live checks on.`
+        : "Live checks did not run. They call this site's API with no login. Turn on Run live checks after the page proves you can edit it.",
+    );
+    return report({ status: "done", findings, passed, skipped });
   }
   // Active probes never follow redirects: a verified host could 3xx us onto a host that isn't verified.
   // A 3xx is then just "not 200" (not exposed / route absent).
@@ -103,8 +129,8 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const { url, anonKey } = findSupabase(blob);
   if (!url || !anonKey) {
     passed.push("supabase_rls");
-  } else if (!opts.verifiedDomains.includes(hostOf(url))) {
-    passed.push(`verify ${hostOf(url)} to probe Supabase RLS`);
+  } else if (!allow.has(hostOf(url).toLowerCase())) {
+    skipped.push(`Supabase at ${hostOf(url)} was not probed. That host has to be verified before row-level security is tested.`);
   } else {
     const exposed = await supabaseRlsCheck(probe, url, anonKey);
     for (const table of exposed) {
@@ -122,7 +148,7 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   }
 
   // Unprotected routes + IDOR
-  const routeFindings = await routeChecks(probe, origin, mk);
+  const routeFindings = await routeChecks(probe, origin, mk, discovered);
   findings.push(...routeFindings);
   if (!routeFindings.length) passed.push("unprotected_routes");
 
@@ -131,7 +157,7 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   if (rate) findings.push(rate);
   else passed.push("rate_limit");
 
-  return report({ status: "done", findings, passed });
+  return report({ status: "done", findings, passed, skipped });
 }
 
 // --- helpers ---
@@ -199,9 +225,11 @@ function supabaseRlsCheck(fetchImpl: typeof fetch, url: string, anonKey: string)
 }
 
 /** 200 + non-empty JSON on an unauth'd request = exposed. users/:id variants that leak data = IDOR. */
-async function routeChecks(fetchImpl: typeof fetch, origin: string, mk: MkFinding): Promise<Finding[]> {
+async function routeChecks(fetchImpl: typeof fetch, origin: string, mk: MkFinding, discovered: string[]): Promise<Finding[]> {
   const open = (path: string) => returnsJsonData(fetchImpl, origin + path);
-  const [admin, leaked] = await Promise.all([matching(ADMIN_PATHS, open), matching(IDOR_PATHS, open)]);
+  // Paths named in the page's own scripts, plus the small fixed list. IDOR stays on the fixed id paths.
+  const openPaths = [...new Set([...ADMIN_PATHS, ...discovered.filter((p) => !IDOR_PATHS.includes(p))])];
+  const [admin, leaked] = await Promise.all([matching(openPaths, open), matching(IDOR_PATHS, open)]);
 
   const out = admin.map((path) =>
     mk("unprotected_route", "high", `"${path}" is open to anyone`, {
@@ -277,3 +305,77 @@ async function rateLimitCheck(fetchImpl: typeof fetch, origin: string, mk: MkFin
 }
 
 const hostOf = (url: string) => URL.parse(url)?.host ?? url;
+
+const API_PATH = /["'`]((?:\\\/|\/)api(?:\\\/|\/)[^"'`\\\s]{0,160})["'`]/g;
+
+/** `/api/...` paths named in the page or its scripts. Capped so one bundle can't turn into a crawl. */
+function discoverApiPaths(blob: string): string[] {
+  const out = new Set<string>();
+  for (const m of blob.matchAll(API_PATH)) {
+    const path = m[1].replace(/\\\//g, "/").split("?")[0].replace(/\/+$/, "");
+    if (!path.startsWith("/api/") || path.includes("..") || path.includes("*")) continue;
+    if (!/^\/api\/[A-Za-z0-9_./[\]$-]+$/.test(path)) continue;
+    out.add(path);
+    if (out.size >= MAX_DISCOVERED) break;
+  }
+  return [...out];
+}
+
+function mapUrl(js: string, scriptUrl: string, origin: string): string | undefined {
+  const m = js.match(/[@#]\s*sourceMappingURL=(\S+)/);
+  if (!m || m[1].startsWith("data:")) return;
+  const abs = URL.parse(m[1], scriptUrl);
+  if (abs?.origin !== origin) return;
+  return abs.href;
+}
+
+/** Same-origin maps only. `sourcesContent` is inlined original source, which is where keys hide. */
+async function sourceMaps(fetchImpl: typeof fetch, scripts: string[], bodies: string[], origin: string): Promise<string[]> {
+  const urls: string[] = [];
+  for (let i = 0; i < scripts.length && urls.length < MAX_MAPS; i++) {
+    const u = mapUrl(bodies[i] ?? "", scripts[i], origin);
+    if (u && !urls.includes(u)) urls.push(u);
+  }
+  const texts = await Promise.all(
+    urls.map((u) =>
+      fetchImpl(u)
+        .then((r) => (r.ok ? r.text() : ""))
+        .then((t) => t.slice(0, MAX_MAP_CHARS))
+        .catch(() => ""),
+    ),
+  );
+  return texts.flatMap(expandMap);
+}
+
+function expandMap(text: string): string[] {
+  if (!text) return [];
+  try {
+    const json = JSON.parse(text) as { sourcesContent?: unknown };
+    const sources = Array.isArray(json.sourcesContent) ? json.sourcesContent.filter((s): s is string => typeof s === "string") : [];
+    return [text, ...sources.map((s) => s.slice(0, MAX_MAP_CHARS))];
+  } catch {
+    return [text];
+  }
+}
+
+/** `<meta name="antibody-verify" content="host">` anywhere in the attributes. */
+function provesOwnership(html: string, host: string): boolean {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    if (!/\bname\s*=\s*["']antibody-verify["']/i.test(tag)) continue;
+    const content = tag.match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (content?.toLowerCase() === host.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/** One GET of a public file. Not followed if it redirects. Body must be the host, nothing else. */
+async function wellKnown(fetchImpl: typeof fetch, origin: string, host: string): Promise<boolean> {
+  try {
+    const res = await fetchImpl(new URL("/.well-known/antibody-verify", origin), { redirect: "manual" });
+    if (res.status !== 200) return false;
+    const text = (await res.text()).trim().slice(0, 300);
+    return text.toLowerCase() === host.toLowerCase();
+  } catch {
+    return false;
+  }
+}

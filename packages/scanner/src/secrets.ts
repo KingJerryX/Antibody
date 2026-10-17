@@ -21,6 +21,11 @@ const SECRET_PATTERNS: { kind: string; re: RegExp }[] = [
   { kind: "OpenAI API key", re: /sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{20,}/g },
   { kind: "Stripe secret key", re: /sk_(?:live|test)_[A-Za-z0-9]{20,}/g },
   { kind: "AWS access key", re: /AKIA[0-9A-Z]{16}/g },
+  { kind: "GitHub token", re: /gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/g },
+  { kind: "Slack token", re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
+  // user:password@ — the password is the secret. The match is redacted before it is stored.
+  { kind: "Database URL", re: /(?:postgres|postgresql|mysql|mongodb(?:\+srv)?):\/\/[^\s'"@:]+:[^\s'"@]+@[^\s'"]+/g },
+  { kind: "Private key", re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g },
 ];
 
 const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;

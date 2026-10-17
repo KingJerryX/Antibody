@@ -1,0 +1,16 @@
+{
+  "name": "@antibody/guestlist",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deliberately vulnerable party guest list. Never deploy publicly.",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 4020",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 4020"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}
