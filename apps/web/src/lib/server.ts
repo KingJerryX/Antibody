@@ -5,7 +5,7 @@ import { isGithubConnected, readDb, repoRoot, type Project } from "@antibody/cor
 
 /**
  * Orchestrator base URL, with a trailing slash.
- * On Vercel, ANTIBODY_ORCHESTRATOR_URL is the Chalk scaling group's HTTPS URL.
+ * On Vercel the web → orchestrator binding injects this. Do not set it in project env; that overrides the binding.
  * That value exists only at function runtime, so read it per request (a module-level
  * capture would freeze the localhost fallback at build time). Bracket access keeps
  * Next from inlining the missing build-time value.
