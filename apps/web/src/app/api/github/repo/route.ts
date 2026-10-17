@@ -1,13 +1,15 @@
-import { installationRepos, readDb, updateDb } from "@antibody/core";
+import { installationRepos, updateDb } from "@antibody/core";
 import { webUrl } from "@/lib/server";
+import { ownedProject } from "@/lib/auth";
 
 /** Setup page form: choose which of the installation's repos belongs to this project. */
 export async function POST(request: Request) {
   const form = await request.formData();
   const projectId = String(form.get("projectId") ?? "");
   const repo = String(form.get("repo") ?? "");
-  const project = (await readDb()).projects.find((p) => p.id === projectId);
-  if (!project?.githubInstallationId) return Response.json({ error: "Connect GitHub first" }, { status: 400 });
+  const { project } = await ownedProject(projectId);
+  if (!project) return Response.json({ error: "Sign in as this project's owner first" }, { status: 403 });
+  if (!project.githubInstallationId) return Response.json({ error: "Connect GitHub first" }, { status: 400 });
 
   const allowed = await installationRepos(project.githubInstallationId);
   if (!allowed.some((r) => r.full_name === repo)) return Response.json({ error: "That repo isn't in the installation" }, { status: 400 });

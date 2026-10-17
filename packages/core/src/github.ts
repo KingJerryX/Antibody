@@ -236,9 +236,15 @@ export async function openVerifyPullRequest(project: Project): Promise<string> {
   await gh(`${repo}/git/refs`, token, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${VERIFY_BRANCH}`, sha: object.sha }) }).catch(() =>
     gh(`${repo}/git/refs/heads/${VERIFY_BRANCH}`, token, { method: "PATCH", body: JSON.stringify({ sha: object.sha, force: true }) }),
   );
-  await gh(`${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, token, {
+  // The file may already exist (an earlier verify PR, maybe for another site): replace it in place.
+  const filePath = `${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const current = await gh<{ sha: string; content: string }>(`${filePath}?ref=${encodeURIComponent(VERIFY_BRANCH)}`, token).catch(() => undefined);
+  if (current && Buffer.from(current.content, "base64").toString().trim().toLowerCase() === host.toLowerCase()) {
+    throw new Error(`Your repo already has ${path} for ${host}. Once the site has redeployed, click Check now.`);
+  }
+  await gh(filePath, token, {
     method: "PUT",
-    body: JSON.stringify({ message: "Prove ownership of this site to Antibody", content: Buffer.from(`${host}\n`).toString("base64"), branch: VERIFY_BRANCH }),
+    body: JSON.stringify({ message: "Prove ownership of this site to Antibody", content: Buffer.from(`${host}\n`).toString("base64"), branch: VERIFY_BRANCH, ...(current && { sha: current.sha }) }),
   });
   const pr = await gh<{ html_url: string }>(`${repo}/pulls`, token, {
     method: "POST",

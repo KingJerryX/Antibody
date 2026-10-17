@@ -1,5 +1,6 @@
-import { appManifest, installUrl, readDb, readGithubApp, refreshGithubApp } from "@antibody/core";
+import { appManifest, installUrl, readGithubApp, refreshGithubApp } from "@antibody/core";
 import { webUrl } from "@/lib/server";
+import { currentUser, ownedProject, sign, signInRedirect, type InstallState } from "@/lib/auth";
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
@@ -9,12 +10,16 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
  */
 export async function GET(request: Request) {
   const projectId = new URL(request.url).searchParams.get("project") ?? "";
-  if (projectId && !(await readDb()).projects.some((p) => p.id === projectId)) return Response.json({ error: "Unknown project" }, { status: 404 });
+  const user = await currentUser();
+  if (!user) return signInRedirect(request);
+  if (projectId && !(await ownedProject(projectId)).project) return Response.json({ error: "That project isn't yours" }, { status: 403 });
+  // Rides through GitHub and back to /api/github/installed, signed so nobody can attach a repo to another project.
+  const state = sign({ u: user.id, ...(projectId && { p: projectId }) } satisfies InstallState, 3600);
 
   const stored = await readGithubApp();
-  if (stored) return Response.redirect(installUrl(await refreshGithubApp(stored), projectId), 302);
+  if (stored) return Response.redirect(installUrl(await refreshGithubApp(stored), state), 302);
 
-  const action = `https://github.com/settings/apps/new?state=${encodeURIComponent(projectId)}`;
+  const action = `https://github.com/settings/apps/new?state=${encodeURIComponent(state)}`;
   const manifest = escapeHtml(JSON.stringify(appManifest(webUrl())));
   return new Response(
     `<!doctype html><meta charset="utf-8"><title>Creating the Antibody GitHub App…</title>

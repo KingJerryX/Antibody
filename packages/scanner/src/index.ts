@@ -358,3 +358,13 @@ async function wellKnown(fetchImpl: typeof fetch, origin: string, host: string):
     return false;
   }
 }
+
+/** Same proof a scan accepts (the verify file or meta tag), checked on its own for the setup page's "Check now". */
+export async function siteProvesOwnership(siteUrl: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const target = URL.parse(siteUrl);
+  if (!target) return false;
+  const get: typeof fetch = (input, init) => fetchImpl(input, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
+  if (await wellKnown(get, target.origin, target.host)) return true;
+  const html = await get(target.href, { redirect: "manual" }).then((r) => r.text()).catch(() => "");
+  return provesOwnership(html, target.host);
+}

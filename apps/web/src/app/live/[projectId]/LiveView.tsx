@@ -24,7 +24,7 @@ const FEED_TONE: Partial<Record<ActivityType, "bad" | "warn" | "good" | "info">>
   call: "info",
 };
 
-export function LiveView({ startCode }: { startCode: string }) {
+export function LiveView({ startCode }: { startCode?: string }) {
   const { projectId } = useParams<{ projectId: string }>();
   const { data: events = [], error } = usePoll<ActivityEvent[]>(`/api/activity?projectId=${encodeURIComponent(projectId)}`, 2000);
   const scanId = latestScanId(events);
@@ -145,7 +145,7 @@ function FeedItem({ event: e }: { event: ActivityEvent }) {
 }
 
 /** The owner's phone: Antibody's texts arrive on the left, the owner's replies go out on the right. */
-function Phone({ thread, startCode }: { thread: ActivityEvent[]; startCode: string }) {
+function Phone({ thread, startCode }: { thread: ActivityEvent[]; startCode?: string }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (box.current) box.current.scrollTop = box.current.scrollHeight; // not scrollIntoView: that would scroll the projector page
@@ -179,7 +179,11 @@ function Phone({ thread, startCode }: { thread: ActivityEvent[]; startCode: stri
         <div className="handset-input">iMessage</div>
       </div>
       <p className="phone-note">
-        Link your phone: text <b>START {startCode}</b> to the Antibody line. Other numbers can&apos;t see or approve anything.
+        {startCode ? (
+          <>Link your phone: text <b>START {startCode}</b> to the Antibody line. Other numbers can&apos;t see or approve anything.</>
+        ) : (
+          <>Sign in as this site&apos;s owner to link your phone.</>
+        )}
       </p>
     </section>
   );

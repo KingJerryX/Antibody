@@ -6,6 +6,12 @@ import { useEffect, useState } from "react";
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Who's signed in. "off" = sign-in not configured here, so the header doesn't offer it.
+  const [me, setMe] = useState<{ user: { login: string; avatar?: string; mock?: boolean } | null; signIn: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me").then((r) => r.json()).then(setMe, () => setMe(null));
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -50,7 +56,20 @@ export function SiteHeader() {
       <nav id="nav" aria-label="Main" className={`${open ? "flex" : "max-[860px]:hidden"} min-[861px]:flex max-[860px]:absolute max-[860px]:left-0 max-[860px]:right-0 max-[860px]:top-full max-[860px]:flex-col max-[860px]:border-b max-[860px]:border-white/10 max-[860px]:bg-[#101210]/95 max-[860px]:px-4 max-[860px]:py-2 items-center gap-1 text-sm`}>
         <Link href="/#scan-job" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Product</Link>
         <Link href="/evals" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Evals</Link>
-        <a href="/api/github/connect" className="ml-2 inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-sm text-[#e4e6e1] hover:bg-white/10" onClick={() => setOpen(false)}>Connect GitHub</a>
+        {me?.user ? (
+          <>
+            <Link href="/sites" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Your sites</Link>
+            <span className="ml-2 inline-flex items-center gap-2 text-[#9b9e96]">
+              {me.user.avatar && <img src={me.user.avatar} alt="" width={22} height={22} className="rounded-full" />}
+              {me.user.login}{me.user.mock ? " (mock sign-in)" : ""}
+            </span>
+            <form action="/api/auth/logout" method="post">
+              <button className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]">Sign out</button>
+            </form>
+          </>
+        ) : me && me.signIn !== "off" ? (
+          <a href="/api/auth/github?next=/sites" className="ml-2 inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-sm text-[#e4e6e1] hover:bg-white/10" onClick={() => setOpen(false)}>Sign in with GitHub</a>
+        ) : null}
         <Link href="/#scan" className="ml-2 inline-flex items-center rounded-full bg-white px-3.5 py-2 text-sm text-[#141614] hover:bg-[#f3f4f0]" onClick={() => setOpen(false)}>Scan</Link>
       </nav>
     </header>

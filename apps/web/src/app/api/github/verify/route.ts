@@ -1,13 +1,14 @@
 import { openVerifyPullRequest, updateDb } from "@antibody/core";
-import { readStore, webUrl } from "@/lib/server";
+import { webUrl } from "@/lib/server";
+import { ownedProject } from "@/lib/auth";
 
 /** Setup page form: open the pull request that adds the ownership file, then back to the page. */
 export async function POST(request: Request) {
   const form = await request.formData();
   const projectId = String(form.get("projectId") ?? "");
   const page = new URL(`${webUrl()}/connect/${encodeURIComponent(projectId)}`);
-  const project = (await readStore()).projects.find((p) => p.id === projectId);
-  if (!project) return Response.json({ error: "Unknown project" }, { status: 404 });
+  const { project } = await ownedProject(projectId);
+  if (!project) return Response.json({ error: "Sign in as this project's owner first" }, { status: 403 });
   try {
     const url = await openVerifyPullRequest(project);
     await updateDb((db) => {

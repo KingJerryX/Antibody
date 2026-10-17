@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 export function ScanForm() {
   const router = useRouter();
@@ -12,12 +12,6 @@ export function ScanForm() {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  // "Scan again" links from the setup page carry the site as ?url=.
-  useEffect(() => {
-    const preset = new URLSearchParams(window.location.search).get("url");
-    if (preset) setUrl(preset.slice(0, 2048));
-  }, []);
 
   useLayoutEffect(() => {
     const el = inputRef.current;

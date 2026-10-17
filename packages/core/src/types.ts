@@ -194,5 +194,8 @@ export interface Project {
   verifiedDomain: boolean;
   /** The pull request that adds /.well-known/antibody-verify, while it waits to be merged and deployed. */
   verifyPrUrl?: string;
+  /** GitHub user id of the signed-in owner. Only they can change the project's setup. */
+  ownerId?: number;
+  ownerLogin?: string;
   createdAt: string;
 }

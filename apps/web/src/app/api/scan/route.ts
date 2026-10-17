@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
 import { auditGithubRepo, auditRepo, liveChecksRan, mergeFindings, scanChecks, scanUrl, type ReviewResult } from "@antibody/scanner";
 import { proxyToOrchestrator, repoDirFor, verifiedDomains } from "@/lib/server";
+import { currentUser, projectIdFor } from "@/lib/auth";
 
 /** Code review of the connected repo. Deployed, the orchestrator runs it: Vercel has neither git nor Semgrep. */
 async function auditConnectedRepo(project: Project & { repo: string }): Promise<ReviewResult> {
@@ -29,12 +30,15 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     const scanId = newId("scan");
 
+    // Signed in, the scan lands in your own project for this site, where your GitHub connection and proof live.
+    const user = await currentUser();
+    const id = projectIdFor(target.host, user);
     const project = await updateDb((db) => {
       const verifiedDomain = domains.includes(target.host.toLowerCase());
-      let p = db.projects.find((x) => x.url === target.origin);
+      let p = db.projects.find((x) => x.id === id);
       if (!p) {
         // Deterministic id (proj_localhost-4000) so the sample app's shield can report blocks to the same project.
-        p = { id: `proj_${target.host.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: target.host, url: target.origin, verifiedDomain, createdAt: now } satisfies Project;
+        p = { id, name: target.host, url: target.origin, verifiedDomain, createdAt: now, ...(user && { ownerId: user.id, ownerLogin: user.login }) } satisfies Project;
         db.projects.push(p);
       }
       // The env allowlist, or proof seen by an earlier scan (the verify file). This scan re-checks the proof.

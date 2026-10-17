@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { connection } from "next/server";
-import { installationRepos, readGithubApp, startCodeFor, type Project } from "@antibody/core";
+import { installationRepos, readGithubApp, startCodeFor, updateDb, type Project } from "@antibody/core";
+import { currentUser, owns, projectIdFor } from "@/lib/auth";
 import { Card, Icon } from "@/components/ui";
 import { proxyToOrchestrator, readStore } from "@/lib/server";
 import { CopyButton, RefreshWhile } from "./ConnectClient";
@@ -41,6 +42,22 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   let db = await readStore();
   const project = db.projects.find((p) => p.id === projectId);
   if (!project) notFound();
+
+  // Setup (GitHub, proof, phones, the START code) is the owner's alone.
+  const user = await currentUser();
+  if (!owns(user, project)) {
+    if (user && project.ownerId === undefined) {
+      // A scan made before signing in: set up your own project for the same site.
+      const mine = projectIdFor(URL.parse(project.url)?.host ?? project.name, user);
+      await updateDb((d) => {
+        if (!d.projects.some((p) => p.id === mine)) {
+          d.projects.push({ id: mine, name: project.name, url: project.url, verifiedDomain: false, createdAt: new Date().toISOString(), ownerId: user.id, ownerLogin: user.login });
+        }
+      });
+      redirect(`/connect/${mine}`);
+    }
+    return <SignInGate projectId={projectId} name={project.name} signedIn={Boolean(user)} />;
+  }
 
   // The START code proves a phone belongs to someone who can see this page (localhost only).
   const code = await startCodeFor(projectId);
@@ -227,6 +244,34 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
   );
 }
 
+/** Looks for the verify file on the live site and saves the result (POST /api/verify/check). */
+function CheckNow({ projectId, className, label = "Check now" }: { projectId: string; className: string; label?: string }) {
+  return (
+    <form action="/api/verify/check" method="post">
+      <input type="hidden" name="projectId" value={projectId} />
+      <button className={className}>{label}</button>
+    </form>
+  );
+}
+
+function SignInGate({ projectId, name, signedIn }: { projectId: string; name: string; signedIn: boolean }) {
+  return (
+    <div className="mx-auto max-w-3xl px-5 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight text-white">Set up {name}</h1>
+      <p className="mt-3 text-slate-400">
+        {signedIn
+          ? "This site is set up under another GitHub account. Sign in as that account to change it."
+          : "Sign in with GitHub to connect your repo, prove you own the site and get alerts. Your progress is saved to your account."}
+      </p>
+      {!signedIn && (
+        <a href={`/api/auth/github?next=${encodeURIComponent(`/connect/${projectId}`)}`} className="mt-6 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110">
+          Sign in with GitHub
+        </a>
+      )}
+    </div>
+  );
+}
+
 /** Live checks call the site's API with no login, so they wait for proof the owner controls the site. */
 function VerifyStep({ project, error }: { project: Project; error?: string }) {
   const host = URL.parse(project.url)?.host ?? project.name;
@@ -245,19 +290,20 @@ function VerifyStep({ project, error }: { project: Project; error?: string }) {
             <a href={project.verifyPrUrl} className="text-mint hover:underline">
               the verification pull request
             </a>
-            . Once your site redeploys, scan it again: Antibody sees the file and runs the live checks.
+            . Once your site redeploys, click Check now. After that every scan runs the live checks.
           </p>
-          <Link href={`/?url=${encodeURIComponent(project.url)}#scan`} className={button}>
-            Scan again
-          </Link>
+          <CheckNow projectId={project.id} className={button} />
         </>
       ) : (
         <>
           <p>Antibody opens a pull request that adds one small file to your site. Merge it, and the live checks unlock. Nothing else in your code changes.</p>
-          <form action="/api/github/verify" method="post">
-            <input type="hidden" name="projectId" value={project.id} />
-            <button className={button}>Open the verification pull request</button>
-          </form>
+          <div className="flex flex-wrap gap-3">
+            <form action="/api/github/verify" method="post">
+              <input type="hidden" name="projectId" value={project.id} />
+              <button className={button}>Open the verification pull request</button>
+            </form>
+            <CheckNow projectId={project.id} className={button.replace("bg-mint", "border border-line bg-transparent").replace("text-ink", "text-slate-200")} label="Already merged? Check now" />
+          </div>
         </>
       )}
       {error && (
