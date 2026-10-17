@@ -1,4 +1,5 @@
 // Decides per integration whether we talk to the real service or a mock: env keys, plus the GitHub App file.
+import { timingSafeEqual } from "node:crypto";
 import { readGithubApp } from "@antibody/core";
 
 type IntegrationMode = "live" | "mock" | "disabled";
@@ -41,6 +42,13 @@ export function logIntegrations(): void {
     console.error("[orchestrator] ANTIBODY_MOCK=off but some integrations have no keys (see table). Exiting.");
     process.exit(1);
   }
+}
+
+/** "Bearer <token>" check in constant time, so the response time doesn't leak how much of a guess was right. */
+export function bearerMatches(header: string | undefined, token: string): boolean {
+  const got = Buffer.from(header ?? "");
+  const want = Buffer.from(`Bearer ${token}`);
+  return got.length === want.length && timingSafeEqual(got, want);
 }
 
 /** Phone/email handles are personal data: show only the tail in logs and activity. */

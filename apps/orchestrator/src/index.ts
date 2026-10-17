@@ -1,7 +1,7 @@
 // Orchestrator: plain node:http on :3001. Routes are the contract in AGENTS.md / the web app's proxy.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isGithubConnected, logActivity, memoryFor, newId, openPullRequest, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
-import { integrations, logIntegrations, maskHandle, toE164 } from "./integrations.ts";
+import { bearerMatches, integrations, logIntegrations, maskHandle, toE164 } from "./integrations.ts";
 import { createMessenger, MockMessenger } from "./messenger.ts";
 import { canAct, handleText, ownerOf, projectFor } from "./conversation.ts";
 import { createFixer, DroidFixer } from "./fixer.ts";
@@ -10,6 +10,14 @@ import { placeCall } from "./voice.ts";
 import { handleGithubWebhook } from "./github.ts";
 
 const messenger = createMessenger();
+
+// Shared secret the web app sends on every call. Required once this process listens off loopback (PORT set),
+// because then anyone who finds the URL could trigger texts, calls and Droid runs.
+const TOKEN = process.env.ANTIBODY_ORCHESTRATOR_TOKEN?.trim();
+if (process.env.PORT && !TOKEN) {
+  console.error("[orchestrator] PORT is set but ANTIBODY_ORCHESTRATOR_TOKEN is empty; refusing to listen publicly without it.");
+  process.exit(1);
+}
 const fixer = createFixer();
 
 // ---------- inbound texts ----------
@@ -199,6 +207,9 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   // can't fire /notify or /fixes at localhost with a "simple" text/plain POST. The GitHub webhook is HMAC-checked instead.
   if (path !== "/github/webhook" && !req.headers["content-type"]?.startsWith("application/json")) return send(res, 415, { error: "content-type must be application/json" });
 
+  // The GitHub webhook proves itself with an HMAC signature instead (handleGithubWebhook).
+  if (TOKEN && path !== "/github/webhook" && !bearerMatches(req.headers.authorization, TOKEN)) return send(res, 401, { error: "missing or wrong orchestrator token" });
+
   const { raw, json } = await readJson(req);
 
   if (path === "/notify") {
@@ -286,10 +297,8 @@ const server = createServer((req, res) => {
 });
 
 logIntegrations();
-// Local dev stays on loopback: /notify and /fixes are unauthenticated and can text the owner.
-// When PORT is set (Vercel), listen on all interfaces so the internal service binding can reach this process.
-// The port passed to listen is local-only; Vercel routes the binding to its own internal port.
-// ponytail: no auth token; put a shared-secret header on these routes before any public rewrite targets this service.
+// Local dev stays on loopback (token optional). When PORT is set (a Chalk scaling group), listen on all
+// interfaces; the token check above is mandatory then.
 const port = Number(process.env.PORT ?? 3001);
 const onListen = () => console.log(`[orchestrator] listening on http://${process.env.PORT ? "0.0.0.0" : "127.0.0.1"}:${port} (imessage: ${messenger.mode})`);
 if (process.env.PORT) server.listen(port, onListen);

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { toE164 } from "./integrations.ts";
+import { bearerMatches, toE164 } from "./integrations.ts";
+
+it("accepts only the exact orchestrator token", () => {
+  expect(bearerMatches("Bearer s3cret", "s3cret")).toBe(true);
+  expect(bearerMatches("Bearer s3cre", "s3cret")).toBe(false);
+  expect(bearerMatches("s3cret", "s3cret")).toBe(false);
+  expect(bearerMatches(undefined, "s3cret")).toBe(false);
+});
 
 describe("toE164", () => {
   it("normalizes what people type", () => {

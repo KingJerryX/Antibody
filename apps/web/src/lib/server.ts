@@ -5,7 +5,7 @@ import { readDb, repoRoot } from "@antibody/core";
 
 /**
  * Orchestrator base URL, with a trailing slash.
- * Vercel injects ANTIBODY_ORCHESTRATOR_URL from the web → orchestrator binding.
+ * On Vercel, ANTIBODY_ORCHESTRATOR_URL is the Chalk scaling group's HTTPS URL.
  * That value exists only at function runtime, so read it per request (a module-level
  * capture would freeze the localhost fallback at build time). Bracket access keeps
  * Next from inlining the missing build-time value.
@@ -46,10 +46,12 @@ export async function readStore() {
 /** Forward a request to the orchestrator; a clear 503 if it isn't running. */
 export async function proxyToOrchestrator(path: string, body: unknown): Promise<Response> {
   const base = orchestratorUrl();
+  const token = process.env["ANTIBODY_ORCHESTRATOR_TOKEN"]?.trim();
   try {
     const res = await fetch(new URL(path.replace(/^\//, ""), base), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      // The orchestrator rejects calls without this once it is reachable off localhost.
+      headers: { "content-type": "application/json", ...(token && { authorization: `Bearer ${token}` }) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(60_000),
     });
