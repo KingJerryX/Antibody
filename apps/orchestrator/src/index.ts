@@ -67,6 +67,14 @@ const saveFix = (id: string, patch: Partial<FixProposal>) =>
     return { ...f };
   });
 
+/** Like saveFix, but a no-op once the fix has left "drafting", so a reject made mid-draft isn't overwritten. */
+const saveDraft = (id: string, patch: Partial<FixProposal>) =>
+  updateDb((db) => {
+    const f = db.fixes.find((x) => x.id === id)!;
+    if (f.status === "drafting") Object.assign(f, patch);
+    return { ...f };
+  });
+
 async function findFinding(findingId: string) {
   return (await readDb()).scans.flatMap((s) => s.findings).find((f) => f.id === findingId);
 }
@@ -76,8 +84,10 @@ async function draftFix(fix: FixProposal, instructions?: string): Promise<FixPro
   const fixId = fix.id;
   const finding = (await findFinding(fix.findingId))!;
   try {
-    const draft = await fixer.draft(finding, instructions, (patch) => void saveFix(fixId, patch));
-    const ready = await saveFix(fixId, { ...draft, status: "ready" });
+    const draft = await fixer.draft(finding, instructions, (patch) => void saveDraft(fixId, patch));
+    const ready = await saveDraft(fixId, { ...draft, status: "ready" });
+    // The owner rejected it while Droid was still working; that decision stands.
+    if (ready.status !== "ready") return ready;
     await logActivity({ projectId: fix.projectId, type: "fix_ready", title: `Fix ready: ${finding.title}`, detail: `${draft.linesChanged} lines, confidence ${draft.confidence}${draft.author === "mock" ? " [mock fixer]" : ""}`, channel: "web", refId: fixId });
     await notify(fix.projectId, finding.severity, `Fix ready for "${finding.title}": ${draft.summary.whatChanges} Review it, then reply YES ${fixId} (merging happens in GitHub).`, false, fixId);
     return ready;
