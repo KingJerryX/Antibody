@@ -8,6 +8,10 @@ import { SEVERITY_ORDER } from "@/components/ui";
 import { useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
 import { useSessionValue } from "@/components/useSessionValue";
+import { unsavedReport } from "@/lib/unsaved-scans";
+
+/** Signed-out scans have no project. Their next step is signing in, which saves the next scan. */
+const SIGN_IN = "/api/auth/github?next=/sites";
 import { LIVE_SKIP_PENALTY, liveChecksSkipped, securityScore } from "@/lib/score";
 
 function joinAnd(items: string[]) {
@@ -99,17 +103,32 @@ function present(f: Finding) {
 
 export function ReportView() {
   const { id } = useParams<{ id: string }>();
-  const { data, error } = usePoll<ScanReport & { canFix?: boolean }>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
+  // A signed-out scan lives only in this page's memory: no server copy to poll, and a refresh forgets it.
+  const kept = unsavedReport<ScanReport>(id);
+  const { data, error } = usePoll<ScanReport & { canFix?: boolean }>(kept ? null : `/api/scan/${id}`, 1500, (s) => s.status === "running");
   const health = useHealth();
   // Filled by the scan form on Vercel, where the next request may not see the file the scan wrote.
   const cached = useSessionValue<ScanReport>(`antibody-scan:${id}`);
-  const scan = data ?? cached;
+  const scan = kept ?? data ?? cached;
 
   if (!scan) {
+    const gone = error?.toLowerCase().includes("not found");
     return (
       <div className="ab">
         <div className="wrap page">
-          <p className="sub">{error ? `Couldn't load this report: ${error}` : "Loading report…"}</p>
+          <p className="sub">
+            {gone
+              ? "This scan wasn't saved because you weren't signed in, so it's gone after a refresh."
+              : error
+                ? `Couldn't load this report: ${error}`
+                : "Loading report…"}
+          </p>
+          {gone && (
+            <div className="actions">
+              <Link className="btn btn-light" href="/#scan">Scan again</Link>
+              <a className="btn btn-ghost" href={SIGN_IN}>Sign in with GitHub to keep scans</a>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -128,10 +147,16 @@ export function ReportView() {
             <span>Report</span>
             <span className="host">{host}</span>
           </nav>
-          <span className="report-links">
-            <Link href={`/connect/${scan.projectId}`}>Set up alerts</Link>
-            <Link href={`/live/${scan.projectId}`}>Live view</Link>
-          </span>
+          {scan.projectId ? (
+            <span className="report-links">
+              <Link href={`/connect/${scan.projectId}`}>Set up alerts</Link>
+              <Link href={`/live/${scan.projectId}`}>Live view</Link>
+            </span>
+          ) : (
+            <span className="report-links">
+              <a href={SIGN_IN}>Not saved: sign in to keep it</a>
+            </span>
+          )}
         </div>
 
         {scan.status === "running" ? (
@@ -194,8 +219,8 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
         {waiting ? `${waiting} didn't run yet: they need you to connect GitHub and prove you own the site.` : "Every check ran."}
       </p>
       {waiting > 0 && (
-        <Link className="btn btn-lime check-cta" href={`/connect/${projectId}`}>
-          {canFix ? "Prove you own the site" : "Connect GitHub for the full check"}
+        <Link className="btn btn-lime check-cta" href={projectId ? `/connect/${projectId}` : SIGN_IN}>
+          {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Prove you own the site" : "Connect GitHub for the full check"}
         </Link>
       )}
       <div className="score-rows">
@@ -362,8 +387,8 @@ function FindingBlock({ finding: f, offline, canFix, hideObserved }: { finding: 
           </button>
         ) : (
           // No connected repo means no code to patch, so there is no fix to offer yet.
-          <Link className="btn btn-lime" href={`/connect/${f.projectId}`} title="Antibody only fixes code it can see">
-            Connect GitHub to fix
+          <Link className="btn btn-lime" href={f.projectId ? `/connect/${f.projectId}` : SIGN_IN} title="Antibody only fixes code it can see">
+            {f.projectId ? "Connect GitHub to fix" : "Sign in with GitHub to fix"}
           </Link>
         )}
       </div>

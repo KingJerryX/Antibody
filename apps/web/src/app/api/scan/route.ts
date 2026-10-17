@@ -32,6 +32,20 @@ export async function POST(request: Request) {
 
     // Signed in, the scan lands in your own project for this site, where your GitHub connection and proof live.
     const user = await currentUser();
+
+    // Not signed in: a one-off look. Nothing is saved or tied to the site, so a refresh forgets it, and nobody can
+    // attach a repo or a phone to a site they scanned but don't own.
+    if (!user) {
+      let report: ScanReport;
+      try {
+        const result = await scanUrl(target.href, { projectId: "", verifiedDomains: domains });
+        report = { ...result, id: scanId, projectId: "", status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
+        if (report.status === "done") report.checks = scanChecks(report, undefined);
+      } catch (err) {
+        report = { id: scanId, projectId: "", targetUrl: target.href, status: "error", startedAt: now, finishedAt: new Date().toISOString(), findings: [], passed: [], error: err instanceof Error ? err.message : "Scan failed" };
+      }
+      return Response.json({ scanId, report, saved: false });
+    }
     const id = projectIdFor(target.host, user);
     const project = await updateDb((db) => {
       const verifiedDomain = domains.includes(target.host.toLowerCase());
