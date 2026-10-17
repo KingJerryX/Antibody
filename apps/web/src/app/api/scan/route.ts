@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
-import { scanUrl } from "@antibody/scanner";
-import { verifiedDomains } from "@/lib/server";
+import { auditCode, mergeFindings, scanUrl } from "@antibody/scanner";
+import { repoDirFor, verifiedDomains } from "@/lib/server";
 
 function parseTarget(raw: unknown): URL | null {
   if (typeof raw !== "string" || !raw.trim() || raw.length > 2048) return null;
@@ -39,8 +39,17 @@ export async function POST(request: Request) {
   after(async () => {
     let report: ScanReport;
     try {
-      const result = await scanUrl(target.href, { projectId: project.id, verifiedDomains: domains });
+      // Live probes and the Semgrep code audit run side by side, then merge: proof from one, file:line from the other.
+      const repoDir = repoDirFor(target.host);
+      const [result, audit] = await Promise.all([
+        scanUrl(target.href, { projectId: project.id, verifiedDomains: domains }),
+        repoDir ? auditCode(repoDir, project.id) : undefined,
+      ]);
       report = { ...result, id: scanId, projectId: project.id, status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
+      if (audit && report.status === "done") {
+        report.findings = mergeFindings(report.findings, audit.findings);
+        report.passed = [...report.passed, audit.note];
+      }
     } catch (err) {
       report = { id: scanId, projectId: project.id, targetUrl: target.href, status: "error", startedAt: now, finishedAt: new Date().toISOString(), findings: [], passed: [], error: err instanceof Error ? err.message : "Scan failed" };
     }

@@ -1,0 +1,84 @@
+# Antibody's Semgrep rules for the holes AI coding tools leave in Next.js + Supabase apps.
+# Each rule's metadata.antibody_kind maps to a FindingKind; the scanner then tries to prove
+# the same hole on the live app and merges the two.
+rules:
+  - id: antibody-hardcoded-provider-key
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: A secret API key is written directly into your code, so it ships to anyone who can read the code or the site's JavaScript.
+    metadata:
+      antibody_kind: secret_in_bundle
+      antibody_severity: critical
+      impact: Anyone who finds the key can run up charges on your account or reach the data it unlocks.
+      fix_hint: Rotate the key, then read it from a server-side environment variable instead of the source.
+    paths:
+      exclude: ["**/*.test.*", "**/*.spec.*"]
+    pattern-regex: (sk-(proj-|ant-)?[A-Za-z0-9_-]{20,}|sk_(live|test)_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16})
+
+  - id: antibody-route-without-auth
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: This API route returns data without checking who is asking.
+    metadata:
+      # Routes with a [param] segment are reported as idor by the scanner.
+      antibody_kind: unprotected_route
+      antibody_severity: high
+      impact: Anyone on the internet can call this route directly, no account needed.
+      fix_hint: Check the session (and ownership or admin role where relevant) at the top of the handler before touching data.
+    paths:
+      include: ["**/app/api/**/route.ts", "**/app/api/**/route.js"]
+      exclude: ["**/api/login/**", "**/api/auth/**", "**/api/signup/**", "**/api/*webhook*/**"]
+    patterns:
+      - pattern: |
+          export async function $METHOD(...) { ... }
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE)$
+      - pattern-not-regex: (getUser|getSession|getServerSession|currentUser|requireUser|requireAdmin|verifyToken|\bauth\(\))
+
+  - id: antibody-ai-route-without-rate-limit
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: This AI route has no rate limit, so one person can call it as fast as they like.
+    metadata:
+      antibody_kind: missing_rate_limit
+      antibody_severity: high
+      impact: A script hammering this route can run up your AI bill with no ceiling.
+      fix_hint: Add a per-user and per-IP rate limit (e.g. 20 requests a minute) before calling the model.
+    paths:
+      include: ["**/api/chat/**", "**/api/ai/**", "**/api/generate/**", "**/api/*completion*/**"]
+    patterns:
+      - pattern: |
+          export async function POST(...) { ... }
+      - pattern-not-regex: (?i)(rate.?limit|limiter|throttle)
+
+  - id: antibody-unverified-webhook
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: This webhook accepts events without checking they really came from the payment provider.
+    metadata:
+      antibody_kind: unverified_webhook
+      antibody_severity: critical
+      impact: Anyone can send a fake "payment succeeded" event and unlock paid features for free.
+      fix_hint: Verify the provider's signature header (e.g. stripe.webhooks.constructEvent) before trusting the body.
+    paths:
+      include: ["**/api/*webhook*/**"]
+    patterns:
+      - pattern: |
+          export async function POST(...) { ... }
+      - pattern-not-regex: (constructEvent|verifySignature|timingSafeEqual|webhooks\.verify|svix)
+
+  - id: antibody-dangerous-html
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: This component injects raw HTML into the page.
+    metadata:
+      antibody_kind: xss
+      antibody_severity: high
+      impact: If any of that HTML comes from users, they can run scripts in other visitors' browsers.
+      fix_hint: Render the text normally, or sanitize it with an allow-list sanitizer before injecting.
+    patterns:
+      - pattern: |
+          <$EL dangerouslySetInnerHTML={$X} />
+      - pattern-not: |
+          <$EL dangerouslySetInnerHTML={{__html: "..."}} />

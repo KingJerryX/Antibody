@@ -18,7 +18,7 @@ const empty = (): Db => ({ projects: [], scans: [], fixes: [], activity: [], mem
 /** Repo root = nearest ancestor of cwd whose package.json declares workspaces, so every app shares one data dir.
  *  (Not AGENTS.md: Next 16 writes one into each app folder.) Found once per process. */
 let root: string | undefined;
-function repoRoot(): string {
+export function repoRoot(): string {
   if (root) return root;
   for (let dir = process.cwd(); ; ) {
     try {

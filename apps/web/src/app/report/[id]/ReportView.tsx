@@ -176,7 +176,13 @@ function FindingCard({ finding: f }: { finding: Finding }) {
     }
   }
 
-  const where = f.location?.file ? `${f.location.file}${f.location.line ? `:${f.location.line}` : ""}` : f.location?.url;
+  const file = f.location?.file && `${f.location.file}${f.location.line ? `:${f.location.line}` : ""}`;
+  const where = [f.detectedBy === "code_audit" ? undefined : f.location?.url, file].filter(Boolean).join(" · ");
+  // Live probes prove a hole; Semgrep only shows where it is in the code.
+  const proof =
+    f.detectedBy === "code_audit"
+      ? { label: "Found in code", style: "border-slate-500/40 text-slate-300" }
+      : { label: file ? "Proven live · found in code" : "Proven on your live app", style: "border-mint/50 text-mint" };
 
   return (
     <Card className="relative overflow-hidden p-6">
@@ -185,6 +191,7 @@ function FindingCard({ finding: f }: { finding: Finding }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <SeverityPill severity={f.severity} />
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${proof.style}`}>{proof.label}</span>
             {where && <span className="truncate font-mono text-xs text-slate-500">{where}</span>}
           </div>
           <h3 className="mt-2 text-xl font-semibold tracking-tight text-white">{f.title}</h3>

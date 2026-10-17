@@ -1,6 +1,7 @@
 // Server-only helpers (imports node fs via @antibody/core). Never import from a client component.
 import { connection } from "next/server";
-import { readDb } from "@antibody/core";
+import { resolve } from "node:path";
+import { readDb, repoRoot } from "@antibody/core";
 
 export const ORCHESTRATOR_URL = process.env.ANTIBODY_ORCHESTRATOR_URL || "http://localhost:3001";
 
@@ -9,6 +10,18 @@ export function verifiedDomains(): string[] {
     .split(",")
     .map((d) => d.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/**
+ * Source folder for a verified host, from ANTIBODY_REPOS ("localhost:4000=samples/vuln-app,...").
+ * ponytail: local folders for the demo; a GitHub App clone replaces this once PR checks exist.
+ */
+export function repoDirFor(host: string): string | undefined {
+  if (!verifiedDomains().includes(host.toLowerCase())) return undefined;
+  for (const pair of (process.env.ANTIBODY_REPOS ?? "").split(",")) {
+    const [h, dir] = pair.split("=").map((s) => s.trim());
+    if (h?.toLowerCase() === host.toLowerCase() && dir) return resolve(repoRoot(), dir);
+  }
 }
 
 /** Store reads are synchronous fs reads; connection() keeps them out of build-time prerendering. */
