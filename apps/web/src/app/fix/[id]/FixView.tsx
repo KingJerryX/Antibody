@@ -174,10 +174,10 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
   return (
     <Card className="mt-6 p-6">
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={() => act("approve")} disabled={!!busy || fix.status !== "ready"} className="inline-flex items-center gap-2 rounded-lg bg-mint px-5 py-2.5 font-semibold text-ink hover:brightness-110 disabled:opacity-50">
+        <button onClick={() => act("approve")} disabled={!!busy || fix.status !== "ready"} className="press inline-flex items-center gap-2 rounded-lg bg-mint px-5 py-2.5 font-semibold text-ink hover:brightness-110 disabled:opacity-50">
           <Icon name="approve" className="h-4 w-4" /> {busy === "approve" ? "Approving…" : "Approve"}
         </button>
-        <button onClick={() => act("reject")} disabled={!!busy || fix.status !== "ready"} className="inline-flex items-center gap-2 rounded-lg border border-line px-5 py-2.5 font-semibold text-slate-200 hover:bg-white/5 disabled:opacity-50">
+        <button onClick={() => act("reject")} disabled={!!busy || fix.status !== "ready"} className="press inline-flex items-center gap-2 rounded-lg border border-line px-5 py-2.5 font-semibold text-slate-200 hover:bg-white/5 disabled:opacity-50">
           <Icon name="x" className="h-4 w-4" /> {busy === "reject" ? "Rejecting…" : "Reject"}
         </button>
         {fix.prUrl && <a href={fix.prUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">View pull request</a>}
@@ -203,13 +203,13 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
             placeholder="e.g. Keep the public pricing page open, only lock down /admin"
             className="min-h-[3rem] flex-1 rounded-lg border border-line bg-black/30 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:border-mint/60 focus:outline-none disabled:opacity-50"
           />
-          <button type="submit" disabled={!!busy || decided || !instructions.trim()} className="rounded-lg border border-mint/50 px-5 py-2 font-semibold text-mint hover:bg-mint/10 disabled:opacity-50">
+          <button type="submit" disabled={!!busy || decided || !instructions.trim()} className="press rounded-lg border border-mint/50 px-5 py-2 font-semibold text-mint hover:bg-mint/10 disabled:opacity-50">
             {busy === "revise" ? "Sending…" : "Send"}
           </button>
         </div>
       </form>
       {note && (
-        <p role={note.ok ? "status" : "alert"} className={`mt-4 rounded-lg px-3 py-2 text-sm ${note.ok ? "bg-mint/10 text-mint" : "border border-red-500/40 bg-red-500/10 text-red-200"}`}>
+        <p role={note.ok ? "status" : "alert"} className={`animate-rise mt-4 rounded-lg px-3 py-2 text-sm ${note.ok ? "bg-mint/10 text-mint" : "border border-red-500/40 bg-red-500/10 text-red-200"}`}>
           {note.text}
         </p>
       )}

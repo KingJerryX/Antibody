@@ -11,6 +11,7 @@
 
 :root {
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -27,12 +28,63 @@ body {
   border-radius: 6px;
 }
 
+/* Display type: tight leading and negative tracking as it grows; small caps labels keep their positive tracking. */
+h1, h2, h3 { text-wrap: balance; font-optical-sizing: auto; }
+
+/* Feedback on press, not release: instant scale-down, gentle return. */
+@utility press {
+  transition: transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1), filter 150ms ease, background-color 150ms ease;
+  &:active:not(:disabled) { transform: scale(0.97); transition-duration: 80ms; }
+}
+
+/* Translucent chrome that content scrolls under; a soft scroll-edge shadow instead of a hard 1px divider. */
+@utility chrome {
+  background: rgb(6 8 11 / 0.6);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 100% 0 auto;
+    height: 16px;
+    pointer-events: none;
+    background: linear-gradient(rgb(6 8 11 / 0.55), transparent);
+  }
+}
+
+/* Panels read as a material: a faint bright top edge where light catches it. */
+@utility material {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+/* Entrances rise from where they'll rest; decelerate in like a spring settling, no overshoot. */
 @keyframes rise {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
   to { opacity: 1; transform: none; }
 }
-.animate-rise { animation: rise 0.35s ease-out both; }
+.animate-rise { animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/* Score ring fills from empty to its value once, on arrival. */
+@keyframes ring-fill { from { stroke-dashoffset: var(--ring-empty); } }
+.ring-fill { animation: ring-fill 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Reduced motion keeps feedback, swaps movement for short cross-fades. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  @keyframes fade { from { opacity: 0; } }
+  .animate-rise { animation: fade 200ms ease both; }
+  .animate-ping, .animate-pulse, .ring-fill { animation: none; }
+  .press:active:not(:disabled) { transform: none; filter: brightness(0.9); }
+  .banner-fade { transition: opacity 200ms ease; }
+  html { scroll-behavior: auto; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .chrome { background: var(--color-ink); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .backdrop-blur-xl { backdrop-filter: none; }
+}
+
+@media (prefers-contrast: more) {
+  .chrome { background: var(--color-ink); border-bottom: 1px solid rgb(255 255 255 / 0.5); }
+  .chrome::after { display: none; }
+  .material { border-color: rgb(255 255 255 / 0.35); }
 }

@@ -120,21 +120,21 @@ function Summary({ scan }: { scan: ScanReport }) {
   const r = 52;
   const c = 2 * Math.PI * r;
   return (
-    <Card className="mt-4 grid gap-8 p-8 sm:grid-cols-[auto_1fr] sm:items-center">
+    <Card className="animate-rise mt-4 grid gap-8 p-8 sm:grid-cols-[auto_1fr] sm:items-center">
       <div className="relative mx-auto h-36 w-36">
         <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-hidden="true">
           <circle cx="60" cy="60" r={r} fill="none" stroke="#1f2630" strokeWidth="10" />
-          <circle cx="60" cy="60" r={r} fill="none" stroke={v.stroke} strokeWidth="10" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - s / 100)} />
+          <circle cx="60" cy="60" r={r} fill="none" stroke={v.stroke} strokeWidth="10" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - s / 100)} className="ring-fill" style={{ "--ring-empty": c } as React.CSSProperties} />
         </svg>
         <div className="absolute inset-0 grid place-items-center text-center">
           <div>
-            <div className="text-4xl font-semibold text-white">{s}</div>
+            <div className="text-4xl font-semibold tracking-tight tabular-nums text-white">{s}</div>
             <div className="text-xs text-slate-400">out of 100</div>
           </div>
         </div>
       </div>
       <div>
-        <h1 className={`text-3xl font-semibold ${v.color}`}>{v.label}</h1>
+        <h1 className={`text-3xl font-semibold tracking-tight ${v.color}`}>{v.label}</h1>
         <p className="mt-2 text-slate-300">
           {scan.findings.length === 0
             ? "We didn't find any of the usual holes. The live shield still has your back."
@@ -144,12 +144,12 @@ function Summary({ scan }: { scan: ScanReport }) {
           {SEVERITY_ORDER.map((sev) => (
             <div key={sev} className="rounded-xl border border-line px-4 py-2">
               <dt className={`text-xs uppercase tracking-wide ${SEVERITY_STYLE[sev].text}`}>{sev}</dt>
-              <dd className="text-2xl font-semibold text-white">{scan.findings.filter((f) => f.severity === sev).length}</dd>
+              <dd className="text-2xl font-semibold tabular-nums text-white">{scan.findings.filter((f) => f.severity === sev).length}</dd>
             </div>
           ))}
           <div className="rounded-xl border border-line px-4 py-2">
             <dt className="text-xs uppercase tracking-wide text-mint">passed</dt>
-            <dd className="text-2xl font-semibold text-white">{scan.passed.length}</dd>
+            <dd className="text-2xl font-semibold tabular-nums text-white">{scan.passed.length}</dd>
           </div>
         </dl>
       </div>
@@ -187,12 +187,12 @@ function FindingCard({ finding: f }: { finding: Finding }) {
             <SeverityPill severity={f.severity} />
             {where && <span className="truncate font-mono text-xs text-slate-500">{where}</span>}
           </div>
-          <h3 className="mt-2 text-xl font-semibold text-white">{f.title}</h3>
+          <h3 className="mt-2 text-xl font-semibold tracking-tight text-white">{f.title}</h3>
         </div>
         <button
           onClick={fix}
           disabled={busy}
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110 disabled:opacity-60"
+          className="press inline-flex shrink-0 items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110 disabled:opacity-60"
         >
           <Icon name="wrench" className="h-4 w-4" />
           {busy ? "Starting…" : "Fix it"}

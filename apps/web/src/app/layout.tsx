@@ -19,15 +19,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 rounded bg-mint px-3 py-2 text-ink">
           Skip to content
         </a>
-        <header className="border-b border-line/80 bg-ink/70 backdrop-blur sticky top-0 z-40">
+        <header className="chrome sticky top-0 z-40">
           <nav aria-label="Main" className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
             <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight text-white">
               <Logo className="h-6 w-6 text-mint" />
               Antibody
             </Link>
             <div className="flex items-center gap-1 text-sm text-slate-300">
-              <Link href="/#scan" className="rounded-md px-3 py-1.5 hover:bg-white/5 hover:text-white">Scan</Link>
-              <Link href="/evals" className="rounded-md px-3 py-1.5 hover:bg-white/5 hover:text-white">Evals</Link>
+              <Link href="/#scan" className="press rounded-md px-3 py-1.5 hover:bg-white/5 hover:text-white">Scan</Link>
+              <Link href="/evals" className="press rounded-md px-3 py-1.5 hover:bg-white/5 hover:text-white">Evals</Link>
             </div>
           </nav>
         </header>

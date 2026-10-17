@@ -69,7 +69,7 @@ export const ACTIVITY_META: Record<ActivityType, { label: string; icon: IconName
 };
 
 export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`rounded-2xl border border-line bg-panel/80 ${className}`}>{children}</div>;
+  return <div className={`material rounded-2xl border border-line bg-panel/80 ${className}`}>{children}</div>;
 }
 
 export function timeAgo(iso: string): string {

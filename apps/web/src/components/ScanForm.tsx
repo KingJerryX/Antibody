@@ -28,7 +28,7 @@ export function ScanForm() {
   return (
     <form onSubmit={submit} className="w-full" aria-describedby="scan-help">
       <label htmlFor="scan-url" className="sr-only">Your app&apos;s URL</label>
-      <div className="flex flex-col gap-2 rounded-2xl border border-line bg-panel p-2 shadow-2xl shadow-mint/5 focus-within:border-mint/60 sm:flex-row">
+      <div className="flex flex-col gap-2 material rounded-2xl border border-line bg-panel p-2 shadow-2xl shadow-mint/5 transition-colors focus-within:border-mint/60 sm:flex-row">
         <input
           id="scan-url"
           type="text"
@@ -43,7 +43,7 @@ export function ScanForm() {
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-mint px-6 py-3 text-base font-semibold text-ink transition hover:brightness-110 disabled:opacity-60"
+          className="press inline-flex items-center justify-center gap-2 rounded-xl bg-mint px-6 py-3 text-base font-semibold text-ink hover:brightness-110 disabled:opacity-60"
         >
           {busy ? "Starting scan…" : "Scan my app"}
           {!busy && <Icon name="arrow" className="h-4 w-4" />}
@@ -53,7 +53,7 @@ export function ScanForm() {
         About 30 seconds. Unverified domains get a passive, read-only check.
       </p>
       {error && (
-        <p role="alert" className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+        <p role="alert" className="animate-rise mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           {error}
         </p>
       )}
