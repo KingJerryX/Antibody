@@ -123,6 +123,7 @@
   }
   
 .ab .scan input::placeholder { color: var(--faint); }
+.ab .scan input::selection { background: transparent; color: inherit; }
   
 .ab .scan.error { border-color: var(--danger); }
   

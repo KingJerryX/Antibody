@@ -1,18 +1,28 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 export function ScanForm() {
   const router = useRouter();
   const inputId = useId();
   const errorId = useId();
   const liveId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const caretAfterPaste = useRef<number | null>(null);
   const [url, setUrl] = useState("");
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const host = hostOf(url);
+
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    const caret = caretAfterPaste.current;
+    if (!el || caret == null) return;
+    el.setSelectionRange(caret, caret);
+    caretAfterPaste.current = null;
+  }, [url]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,8 +58,14 @@ export function ScanForm() {
           autoComplete="url"
           spellCheck={false}
           required
+          ref={inputRef}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          onPaste={(e) => {
+            const el = e.currentTarget;
+            const start = el.selectionStart ?? el.value.length;
+            caretAfterPaste.current = start + e.clipboardData.getData("text").length;
+          }}
           placeholder="http://localhost:4000"
           aria-describedby={error ? errorId : undefined}
         />
