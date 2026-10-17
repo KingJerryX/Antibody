@@ -206,7 +206,7 @@ const THREADS = [
 const THREAD_MS = 5400;
 
 export function startCluster(canvas: HTMLCanvasElement, reduce: boolean): Stage {
-  const demo = canvas.closest(".demo");
+  const demo = canvas.closest<HTMLElement>(".demo");
   const thread = demo?.querySelector(".thread");
   if (!demo || !thread) return { wave() {}, stop() {}, setActive() {} };
 
