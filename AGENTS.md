@@ -24,7 +24,7 @@ Product context: Antibody is a security teammate for vibe-coded apps. Current st
 - **Mock mode:** every integration (Photon, Chalk, Factory, GitHub, ElevenLabs) must work without keys by falling back to a mock and saying so in the UI/logs. The app must run end to end with an empty `.env.local`.
 - **Safety:** scans that actively probe, and attack scripts, may only target hosts in `ANTIBODY_VERIFIED_DOMAINS`. Never target anything else.
 - **Fail open:** the shield must allow requests if Chalk is unreachable.
-- **Git:** don't commit or push unless a human asks. No AI co-author or "generated with" lines in commits or PRs.
+- **Git:** don't commit or push unless a human asks. Cursor's `Co-authored-by` line is fine (we use Cursor for our track). No Claude co-author or "Generated with Claude Code" lines in commits or PRs.
 - **Next.js 16** has breaking changes vs older versions. Read `node_modules/next/dist/docs/` before writing Next code.
 - **Imports:** packages import each other as `@antibody/<name>`; relative TS imports use explicit `.ts` extensions.
 - **Platform:** dev machines run Windows (Git Bash / PowerShell). Use cross-platform Node APIs, not shell-specific scripts.
