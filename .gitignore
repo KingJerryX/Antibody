@@ -1,0 +1,17 @@
+# deps and builds
+node_modules/
+.next*/
+dist/
+*.tsbuildinfo
+
+# secrets: only .env.example is committed
+.env
+.env.*
+!.env.example
+*.pem
+
+# local data and Python
+data/
+.venv/
+__pycache__/
+.chalk/

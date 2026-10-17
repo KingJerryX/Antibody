@@ -1,0 +1,29 @@
+{
+  "name": "@antibody/orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env.local --import tsx --watch src/index.ts",
+    "start": "node --env-file-if-exists=../../.env.local --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@antibody/core": "^0.0.0",
+    "@factory/droid-sdk": "^0.9.1",
+    "@photon-ai/api": "^0.5.0",
+    "octokit": "^5.0.5",
+    "socket.io-client": "^4.8.4",
+    "zod": "^3.25.76"
+  }
+}

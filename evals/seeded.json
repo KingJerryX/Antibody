@@ -1,0 +1,5 @@
+{
+  "target": "http://localhost:4000",
+  "note": "Holes deliberately planted in samples/vuln-app. The scanner should find exactly these kinds.",
+  "holes": ["secret_in_bundle", "supabase_rls_disabled", "idor", "unprotected_route", "missing_rate_limit", "missing_security_headers"]
+}
