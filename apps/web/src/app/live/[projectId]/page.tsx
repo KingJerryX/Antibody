@@ -7,7 +7,7 @@ export const metadata = { title: "Live | Antibody" };
 
 export default function LivePage({ params }: { params: Promise<{ projectId: string }> }) {
   return (
-    <Suspense fallback={<p className="mx-auto max-w-7xl px-5 py-16 text-slate-400">Connecting…</p>}>
+    <Suspense fallback={<div className="ab"><p className="wrap page sub">Connecting…</p></div>}>
       <LiveWithCode params={params} />
     </Suspense>
   );

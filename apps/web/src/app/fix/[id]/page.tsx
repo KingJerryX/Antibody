@@ -5,7 +5,7 @@ export const metadata = { title: "Review fix | Antibody" };
 
 export default function FixPage() {
   return (
-    <Suspense fallback={<p className="mx-auto max-w-6xl px-5 py-16 text-slate-400">Loading fix…</p>}>
+    <Suspense fallback={<div className="ab"><p className="wrap page sub">Loading fix…</p></div>}>
       <FixView />
     </Suspense>
   );

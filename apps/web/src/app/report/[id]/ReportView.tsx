@@ -3,13 +3,13 @@
 import type { Finding, ScanReport, Severity } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SEVERITY_ORDER } from "@/components/ui";
+import { useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
+import { useSessionValue } from "@/components/useSessionValue";
 
 const WEIGHT: Record<Severity, number> = { critical: 35, high: 20, medium: 8, low: 3 };
-
-type Health = { orchestrator: "up" | "down" };
 
 function scoreOf(findings: Finding[]) {
   return Math.max(0, 100 - findings.reduce((n, f) => n + WEIGHT[f.severity], 0));
@@ -100,28 +100,16 @@ function present(f: Finding) {
 export function ReportView() {
   const { id } = useParams<{ id: string }>();
   const { data, error } = usePoll<ScanReport>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
-  const { data: health } = usePoll<Health>("/api/health", 10_000);
-  const [fallback, setFallback] = useState<ScanReport>();
-  const [checked, setChecked] = useState(false);
-
+  const health = useHealth();
   // Filled by the scan form on Vercel, where the next request may not see the file the scan wrote.
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(`antibody-scan:${id}`);
-      if (raw) setFallback(JSON.parse(raw) as ScanReport);
-    } catch {
-      /* a bad cache just means we wait on the poll */
-    }
-    setChecked(true);
-  }, [id]);
-
-  const scan = data ?? fallback;
+  const cached = useSessionValue<ScanReport>(`antibody-scan:${id}`);
+  const scan = data ?? cached;
 
   if (!scan) {
     return (
       <div className="ab">
         <div className="wrap page">
-          <p className="sub">{checked && error ? `Couldn't load this report: ${error}` : "Loading report…"}</p>
+          <p className="sub">{error ? `Couldn't load this report: ${error}` : "Loading report…"}</p>
         </div>
       </div>
     );

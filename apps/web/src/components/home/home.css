@@ -1267,6 +1267,9 @@
   font-size: 14px;
   list-style: none;
   cursor: default;
+  /* .row is also the home page's chat bubble, which shrinks to fit. */
+  width: auto;
+  max-width: none;
 }
 
 .ab .score-rows summary { cursor: pointer; }
@@ -1413,4 +1416,196 @@
   .ab .report { grid-template-columns: 1fr; gap: 28px; }
   .ab .score-card { position: static; }
   .ab .scan-summary h1 { font-size: 28px; }
+}
+
+/* Fix review. Same layout as the report; only checks, replay, revise and diff are new. */
+.ab .score-card .figure.ok { color: var(--lime); }
+
+.ab .cap { text-transform: capitalize; }
+
+.ab .check-list { list-style: none; margin: 0; padding: 0; }
+
+.ab .check-list li {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ab .check-list h3 { font-size: 15px; font-weight: 500; letter-spacing: 0; }
+
+.ab .check-list p { margin-top: 4px; max-width: 68ch; color: var(--muted); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.ab .check-pill {
+  display: inline-flex;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ab .check-pill.pass { background: rgba(127, 238, 100, 0.14); color: #c8f7bb; }
+.ab .check-pill.fail { background: rgba(255, 109, 109, 0.18); color: #ffc9c9; }
+.ab .check-pill.pending { color: var(--ink); animation: ab-pulse 1.4s ease-in-out infinite; }
+.ab .check-pill.waiting, .ab .check-pill.skipped { color: var(--faint); }
+
+@keyframes ab-pulse { 50% { opacity: 0.45; } }
+
+.ab .replay { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+
+.ab .replay-pane { margin: 0; overflow: hidden; border-radius: 14px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); }
+.ab .replay-pane.exposed { border-color: rgba(255, 109, 109, 0.35); }
+.ab .replay-pane.blocked { border-color: rgba(127, 238, 100, 0.3); }
+
+.ab .replay-pane figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.ab .replay-pane pre {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ab .decision-note { margin-top: 14px; color: var(--faint); font-size: 14px; }
+
+.ab .decision-ok { margin-top: 12px; color: var(--lime); font-size: 14px; }
+
+.ab .revise { margin-top: 26px; }
+
+.ab .revise label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.ab .revise > div { display: flex; gap: 10px; align-items: stretch; }
+
+.ab .revise textarea {
+  flex: 1;
+  min-height: 48px;
+  resize: vertical;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.ab .revise textarea::placeholder { color: var(--faint); }
+.ab .revise textarea:focus { outline: none; border-color: rgba(127, 238, 100, 0.5); }
+.ab .revise textarea:disabled { opacity: 0.5; }
+
+.ab .btn:disabled { opacity: 0.5; cursor: default; }
+.ab .btn-lime:disabled { opacity: 1; }
+
+.ab .diff-table { margin-top: 18px; overflow-x: auto; border-radius: 14px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); }
+
+.ab .diff-table table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; }
+
+.ab .diff-table .file td { padding: 8px 14px; border-block: 1px solid var(--line); background: var(--card); color: var(--ink); font-family: var(--sans); font-size: 14px; }
+.ab .diff-table .hunk td { padding: 0 14px; background: rgba(142, 182, 255, 0.05); color: #a9c3f5; }
+.ab .diff-table .add { background: rgba(127, 238, 100, 0.08); color: #c8f7bb; }
+.ab .diff-table .del { background: rgba(255, 109, 109, 0.08); color: #ffc9c9; }
+.ab .diff-table .ctx { color: var(--muted); }
+.ab .diff-table .no { width: 44px; padding: 0 8px; text-align: right; color: var(--faint); user-select: none; }
+.ab .diff-table .code { padding: 0 14px 0 8px; white-space: pre; }
+.ab .diff-table .sign { opacity: 0.6; user-select: none; }
+
+@media (max-width: 720px) {
+  .ab .replay { grid-template-columns: 1fr; }
+  .ab .check-list li { grid-template-columns: 1fr; gap: 8px; }
+  .ab .revise > div { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ab .check-pill.pending { animation: none; }
+}
+
+/* Live activity. Builds on the preview's .live-head, .ping, .stats and .event; adds the feed tags and phone. */
+.ab .live-lede { margin-top: 10px; color: var(--muted); font-size: 15px; }
+
+.ab a.stat:hover { border-color: rgba(255, 255, 255, 0.2); }
+.ab .stat b.warn { color: var(--warn); }
+.ab .stat b.info { color: var(--info); }
+
+.ab .activity .event.alarm { margin: 0 -12px; padding: 14px 12px; border: 1px solid rgba(255, 109, 109, 0.3); border-radius: 14px; background: rgba(255, 109, 109, 0.07); }
+
+.ab .event h3 { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; font-weight: 500; letter-spacing: 0; overflow-wrap: anywhere; }
+
+.ab .event time { flex: none; color: var(--faint); font-size: 13px; font-weight: 400; }
+
+.ab .event p { margin-top: 4px; color: var(--muted); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.ab .activity ol { list-style: none; margin: 0; padding: 0; }
+
+/* Both are <section>s, which the home page pads for its full-height bands. */
+.ab .activity, .ab .live-phone { padding: 0; }
+
+.ab .activity .finding-row { margin-top: 0; }
+
+/* Wider tag column than the preview's, so "Antibody texted" fits on one line. */
+.ab .activity .event { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px 0; }
+
+.ab .activity .sub a { color: var(--lime); }
+
+.ab .feed-tag { justify-self: start; border-radius: 999px; padding: 3px 9px; background: rgba(255, 255, 255, 0.06); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ab .feed-tag.bad { background: rgba(255, 109, 109, 0.18); color: #ffc9c9; }
+.ab .feed-tag.warn { background: rgba(255, 177, 90, 0.16); color: #ffe0bc; }
+.ab .feed-tag.good { background: rgba(127, 238, 100, 0.14); color: #c8f7bb; }
+.ab .feed-tag.info { background: rgba(142, 182, 255, 0.16); color: #d5e2ff; }
+
+.ab .live-phone { position: sticky; top: 92px; width: 100%; max-width: 360px; justify-self: end; }
+
+.ab .handset { overflow: hidden; border-radius: 40px; border: 9px solid #26292a; background: #000; }
+
+.ab .handset-top { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 0 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+.ab .handset-top .avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(#6b6f6a, #3c3f3b); color: #fff; }
+
+.ab .handset-thread { display: flex; flex-direction: column; gap: 8px; height: 460px; overflow-y: auto; padding: 14px 12px; }
+
+.ab .handset-thread .empty { margin: auto; color: var(--faint); font-size: 14px; }
+
+.ab .handset-thread .text { max-width: 80%; padding: 8px 13px; border-radius: 18px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; animation: ab-rise 0.45s var(--ease) both; }
+.ab .handset-thread .text.in { align-self: flex-start; border-bottom-left-radius: 6px; background: #262826; color: var(--ink); }
+.ab .handset-thread .text.out { align-self: flex-end; border-bottom-right-radius: 6px; background: #0a84ff; color: #fff; }
+.ab .handset-thread .text small { display: block; margin-top: 4px; font-size: 11px; opacity: 0.6; }
+
+.ab .handset-thread .call { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 12px; text-align: center; }
+.ab .handset-thread .call span { color: var(--faint); }
+
+.ab .handset-input { margin: 0 12px 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); font-size: 14px; }
+
+.ab .phone-note { margin-top: 12px; color: var(--faint); font-size: 13px; line-height: 1.5; text-align: center; }
+.ab .phone-note b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
+
+@media (max-width: 860px) {
+  .ab .live-grid { grid-template-columns: 1fr; }
+  .ab .live-phone { position: static; justify-self: center; }
+}
+
+@media (max-width: 560px) {
+  .ab .activity .event { grid-template-columns: 1fr; gap: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ab .handset-thread .text { animation: none; }
 }

@@ -2,14 +2,15 @@
 
 import { useEffect, useEffectEvent, useState } from "react";
 
-/** GET `url` every `ms` until `keepGoing(data)` returns false. Errors keep polling (server may be mid-write). */
-export function usePoll<T>(url: string, ms: number, keepGoing: (data: T) => boolean = () => true) {
+/** GET `url` every `ms` until `keepGoing(data)` returns false. Errors keep polling (server may be mid-write). A null url waits. */
+export function usePoll<T>(url: string | null, ms: number, keepGoing: (data: T) => boolean = () => true) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
   const [tick, setTick] = useState(0);
   const keep = useEffectEvent(keepGoing);
 
   useEffect(() => {
+    if (!url) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const run = async () => {

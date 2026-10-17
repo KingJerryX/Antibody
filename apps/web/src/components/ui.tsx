@@ -39,34 +39,19 @@ export function Logo({ className }: { className?: string }) {
 
 export const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low"];
 
-export const SEVERITY_STYLE: Record<Severity, { pill: string; bar: string; text: string }> = {
-  critical: { pill: "bg-red-500/15 text-red-300 ring-red-500/40", bar: "bg-red-500", text: "text-red-300" },
-  high: { pill: "bg-orange-500/15 text-orange-300 ring-orange-500/40", bar: "bg-orange-500", text: "text-orange-300" },
-  medium: { pill: "bg-amber-400/15 text-amber-200 ring-amber-400/40", bar: "bg-amber-400", text: "text-amber-200" },
-  low: { pill: "bg-sky-400/15 text-sky-200 ring-sky-400/40", bar: "bg-sky-400", text: "text-sky-200" },
-};
-
-export function SeverityPill({ severity }: { severity: Severity }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ring-1 ${SEVERITY_STYLE[severity].pill}`}>
-      {severity}
-    </span>
-  );
-}
-
-export const ACTIVITY_META: Record<ActivityType, { label: string; icon: IconName; tone: string }> = {
-  scan_started: { label: "Scan started", icon: "search", tone: "text-sky-300 bg-sky-400/10" },
-  scan_done: { label: "Scan finished", icon: "check", tone: "text-mint bg-mint/10" },
-  finding: { label: "Finding", icon: "alert", tone: "text-orange-300 bg-orange-500/10" },
-  fix_drafting: { label: "Drafting fix", icon: "wrench", tone: "text-violet-300 bg-violet-400/10" },
-  fix_ready: { label: "Fix ready", icon: "wrench", tone: "text-mint bg-mint/10" },
-  message_out: { label: "Antibody texted", icon: "message", tone: "text-sky-300 bg-sky-400/10" },
-  message_in: { label: "Owner replied", icon: "reply", tone: "text-blue-300 bg-blue-500/10" },
-  call: { label: "Phone call", icon: "phone", tone: "text-emerald-300 bg-emerald-400/10" },
-  block: { label: "Attack blocked", icon: "ban", tone: "text-red-300 bg-red-500/15" },
-  approval: { label: "Approved", icon: "approve", tone: "text-mint bg-mint/10" },
-  rejection: { label: "Rejected", icon: "x", tone: "text-slate-300 bg-white/5" },
-  undo: { label: "Rolled back", icon: "undo", tone: "text-amber-200 bg-amber-400/10" },
+export const ACTIVITY_LABEL: Record<ActivityType, string> = {
+  scan_started: "Scan started",
+  scan_done: "Scan finished",
+  finding: "Finding",
+  fix_drafting: "Drafting fix",
+  fix_ready: "Fix ready",
+  message_out: "Antibody texted",
+  message_in: "Owner replied",
+  call: "Phone call",
+  block: "Attack blocked",
+  approval: "Approved",
+  rejection: "Rejected",
+  undo: "Rolled back",
 };
 
 export function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {

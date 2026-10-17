@@ -1,10 +1,11 @@
 "use client";
 
 import type { ExploitReplay, FixCheck, FixCheckName, FixProposal, ReplayedResponse } from "@antibody/core";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Card, Icon, type IconName } from "@/components/ui";
 import { usePoll } from "@/components/usePoll";
+import { useSessionValue } from "@/components/useSessionValue";
 import { parseDiff } from "@/lib/diff";
 
 const CHECK_LABEL: Record<FixCheckName, { title: string; sub: string }> = {
@@ -17,12 +18,20 @@ const CHECK_ORDER = Object.keys(CHECK_LABEL) as FixCheckName[];
 
 type CheckState = FixCheck["status"] | "waiting";
 
-const CHECK_LOOK: Record<CheckState, { icon: IconName; cls: string; text: string }> = {
-  pass: { icon: "check", cls: "text-mint bg-mint/10", text: "Passed" },
-  fail: { icon: "x", cls: "text-red-300 bg-red-500/15", text: "Failed" },
-  pending: { icon: "clock", cls: "text-slate-300 bg-white/5 animate-pulse", text: "Running" },
-  waiting: { icon: "clock", cls: "text-slate-500 bg-white/5", text: "Waiting for the fix" },
-  skipped: { icon: "arrow", cls: "text-slate-400 bg-white/5", text: "Skipped" },
+const CHECK_TEXT: Record<CheckState, string> = {
+  pass: "Passed",
+  fail: "Failed",
+  pending: "Running",
+  waiting: "Waiting",
+  skipped: "Skipped",
+};
+
+/** What the owner's decision means, shown once the fix has left review. */
+const DECIDED_NOTE: Partial<Record<FixProposal["status"], string>> = {
+  approved: "You approved it. Merging happens in GitHub, so it can always be rolled back.",
+  merged: "Merged in GitHub.",
+  rejected: "You rejected it. Nothing changed in your code.",
+  rolled_back: "Rolled back in GitHub.",
 };
 
 const STATUS_LABEL: Record<FixProposal["status"], string> = {
@@ -45,6 +54,18 @@ const PHASE_NOTE: Record<Phase, string> = {
   done: "Plain English first. The code is below if you want it.",
 };
 
+/** Skipped checks don't count either way; everything else must pass. */
+function verdict(fix: FixProposal, checks: FixCheck[], phase: Phase) {
+  const counted = checks.filter((c) => c.status !== "skipped");
+  const passed = counted.filter((c) => c.status === "pass").length;
+  const failed = counted.length - passed - counted.filter((c) => c.status === "pending").length;
+  const figure = phase === "writing" ? "–" : `${passed}/${counted.length}`;
+  if (phase !== "done") return { figure, tone: "", line: PHASE_NOTE[phase] };
+  if (fix.status !== "ready") return { figure, tone: failed ? "bad" : "ok", line: DECIDED_NOTE[fix.status] ?? STATUS_LABEL[fix.status] };
+  if (failed) return { figure, tone: "bad", line: `${failed} check${failed === 1 ? "" : "s"} failed. Ask for changes or reject it.` };
+  return { figure, tone: "ok", line: "Every check passed. Approve it when the change reads right to you." };
+}
+
 export function FixView() {
   const { id } = useParams<{ id: string }>();
   const { data, error, setData, refresh } = usePoll<FixProposal>(
@@ -56,29 +77,19 @@ export function FixView() {
       f.checks.some((c) => c.status === "pending") ||
       (f.status === "approved" && !f.prUrl && (!f.prNote || f.prNote.startsWith("Opening"))),
   );
-  const [fallback, setFallback] = useState<FixProposal>();
-  const [checked, setChecked] = useState(false);
-
   // Written by Fix it on Vercel, where the next request may not see the file this one wrote.
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(`antibody-fix:${id}`);
-      if (raw) setFallback(JSON.parse(raw) as FixProposal);
-    } catch {
-      /* a bad cache just means we wait on the poll */
-    }
-    setChecked(true);
-  }, [id]);
-
-  const fix = data ?? fallback;
+  const cached = useSessionValue<FixProposal>(`antibody-fix:${id}`);
+  const fix = data ?? cached;
   useEffect(() => {
     if (fix) sessionStorage.setItem(`antibody-fix:${id}`, JSON.stringify(fix));
   }, [fix, id]);
 
   if (!fix) {
     return (
-      <div className="mx-auto max-w-6xl px-5 py-16">
-        <p className="text-slate-400">{checked && error ? `Couldn't load this fix: ${error}` : "Loading fix…"}</p>
+      <div className="ab">
+        <div className="wrap page">
+          <p className="sub">{error ? `Couldn't load this fix: ${error}` : "Loading fix…"}</p>
+        </div>
       </div>
     );
   }
@@ -86,101 +97,114 @@ export function FixView() {
   const phase = phaseOf(fix);
   const checks = CHECK_ORDER.map((name) => fix.checks.find((c) => c.name === name) ?? { name, status: "pending" as const, detail: "" });
   const replay = fix.checks.find((c) => c.name === "exploit_test")?.replay;
+  const result = verdict(fix, checks, phase);
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-12">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-full border border-line px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-300">{STATUS_LABEL[fix.status]}</span>
-        {fix.author === "droid" ? (
-          <span className="rounded-full bg-violet-400/10 px-3 py-1 text-xs font-medium text-violet-200">Written by Factory Droid</span>
-        ) : (
-          <span className="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200">Mock fixer (no Factory key): canned demo fix</span>
-        )}
-      </div>
-      <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white">Review this fix</h1>
-      <p className="mt-2 text-slate-400" aria-live="polite">{PHASE_NOTE[phase]}</p>
-
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-4">
-          <Explain title="What was wrong" body={fix.summary.whatWasWrong} icon="alert" tone="text-orange-300" />
-          <Explain title="What changes" body={fix.summary.whatChanges} icon="wrench" tone="text-mint" />
-          <Explain title="What your users will notice" body={fix.summary.whatUsersNotice} icon="message" tone="text-sky-300" />
+    <div className="ab">
+      <div className="wrap page view">
+        <div className="report-top">
+          <nav className="crumb" aria-label="Breadcrumb">
+            <Link href="/">Home</Link>
+            <span aria-hidden="true">/</span>
+            <span>Fix</span>
+          </nav>
+          <span className="report-links">
+            <Link href={`/live/${fix.projectId}`}>Live view</Link>
+          </span>
         </div>
 
-        <aside className="space-y-4" aria-label="Fix details">
-          <Card className="p-5">
-            <dl className="grid grid-cols-3 gap-3 text-center">
-              <div>
-                <dt className="text-xs text-slate-400">Confidence</dt>
-                <dd className={`mt-1 text-lg font-semibold capitalize ${phase === "writing" ? "text-slate-500" : fix.confidence === "high" ? "text-mint" : fix.confidence === "medium" ? "text-amber-200" : "text-red-300"}`}>
-                  {phase === "writing" ? "–" : fix.confidence}
-                </dd>
+        <div className="report">
+          <aside className="score-card" aria-label="Fix status">
+            <p className="kicker">Checks passed</p>
+            <p className={`figure ${result.tone}`}>{result.figure}</p>
+            <p className="status-line" aria-live="polite">{result.line}</p>
+            <div className="score-rows">
+              <div className="row">
+                <span>Status</span>
+                <b>{STATUS_LABEL[fix.status]}</b>
               </div>
-              <div>
-                <dt className="text-xs text-slate-400">Files</dt>
-                <dd className="mt-1 text-lg font-semibold text-white">{fix.filesChanged.length}</dd>
+              <div className="row">
+                <span>Written by</span>
+                <b>{fix.author === "droid" ? "Factory Droid" : "Mock fixer"}</b>
               </div>
-              <div>
-                <dt className="text-xs text-slate-400">Lines</dt>
-                <dd className="mt-1 text-lg font-semibold text-white">{fix.linesChanged}</dd>
+              <div className="row">
+                <span>Confidence</span>
+                <b className="cap">{phase === "writing" ? "–" : fix.confidence}</b>
               </div>
-            </dl>
-          </Card>
-          <Card className="p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-400">Checks</h2>
-            <ul className="space-y-3">
+              <div className="row">
+                <span>Lines changed</span>
+                <b>
+                  {fix.linesChanged} in {fix.filesChanged.length} file{fix.filesChanged.length === 1 ? "" : "s"}
+                </b>
+              </div>
+            </div>
+          </aside>
+
+          <section className="scan-summary" aria-labelledby="fix-title">
+            <p className="kicker">Proposed fix</p>
+            <h1 id="fix-title">Review this fix</h1>
+            <p className="lede">{PHASE_NOTE[phase]}</p>
+            {fix.author === "mock" && <p className="alert">Mock fixer: no Factory key is set, so this is a canned demo fix and nothing was run.</p>}
+
+            <div className="brief">
+              <h3>What was wrong</h3>
+              <p>{fix.summary.whatWasWrong}</p>
+            </div>
+            <div className="brief">
+              <h3>What changes</h3>
+              <p>{fix.summary.whatChanges}</p>
+            </div>
+            {fix.summary.whatUsersNotice && (
+              <div className="brief">
+                <h3>What your users will notice</h3>
+                <p>{fix.summary.whatUsersNotice}</p>
+              </div>
+            )}
+
+            {replay && <AttackReplay replay={replay} />}
+
+            <div className="finding-row">
+              <h2>Antibody&apos;s checks</h2>
+              <span className="meta">Run on a patched copy, not your app</span>
+            </div>
+            <ul className="check-list">
               {checks.map((c) => (
                 <CheckRow key={c.name} check={c} state={phase === "writing" ? "waiting" : c.status} />
               ))}
             </ul>
-          </Card>
-        </aside>
+
+            <Decision
+              fix={fix}
+              onUpdate={(f) => {
+                if (f) setData(f);
+                refresh(); // restarts polling in case a revision put the fix back into drafting
+              }}
+            />
+
+            <div className="finding-row">
+              <h2>The code change</h2>
+              {fix.filesChanged.length > 0 && (
+                <span className="meta">
+                  {fix.filesChanged.length} file{fix.filesChanged.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            {fix.diff ? <DiffView diff={fix.diff} /> : <p className="sub">Droid hasn&apos;t returned a diff yet.</p>}
+          </section>
+        </div>
       </div>
-
-      {replay && <AttackReplay replay={replay} />}
-
-      <Actions
-        fix={fix}
-        onUpdate={(f) => {
-          if (f) setData(f);
-          refresh(); // restarts polling in case a revision put the fix back into drafting
-        }}
-      />
-
-      <section aria-labelledby="diff" className="mt-10">
-        <h2 id="diff" className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-400">The code change</h2>
-        {fix.diff ? <DiffView diff={fix.diff} /> : <p className="text-slate-500">No diff yet.</p>}
-      </section>
     </div>
-  );
-}
-
-function Explain({ title, body, icon, tone }: { title: string; body: string; icon: IconName; tone: string }) {
-  return (
-    <Card className="flex gap-4 p-6">
-      <Icon name={icon} className={`mt-1 h-5 w-5 shrink-0 ${tone}`} />
-      <div>
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
-        <p className="mt-1 leading-relaxed text-slate-300">{body || "…"}</p>
-      </div>
-    </Card>
   );
 }
 
 function CheckRow({ check, state }: { check: FixCheck; state: CheckState }) {
   const label = CHECK_LABEL[check.name];
-  const look = CHECK_LOOK[state];
   return (
-    <li className="flex gap-3">
-      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${look.cls}`}>
-        <Icon name={look.icon} className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-white">{label.title}</p>
-        <p className="text-xs text-slate-400">
-          {label.sub}: <span className="font-medium">{look.text}</span>
-          {check.detail && <> · {check.detail}</>}
-        </p>
+    <li>
+      <span className={`check-pill ${state}`}>{CHECK_TEXT[state]}</span>
+      <div>
+        <h3>{label.title}</h3>
+        <p>{state === "waiting" ? `${label.sub} runs once Droid's fix is in.` : check.detail || label.sub}</p>
       </div>
     </li>
   );
@@ -189,35 +213,35 @@ function CheckRow({ check, state }: { check: FixCheck; state: CheckState }) {
 /** The same request, sent to the app as it is and to the patched copy. */
 function AttackReplay({ replay }: { replay: ExploitReplay }) {
   return (
-    <Card className="animate-rise mt-6 p-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">Attack replay</h2>
-        <code className="font-mono text-sm text-slate-200">{replay.request}</code>
+    <>
+      <div className="finding-row">
+        <h2>Attack replay</h2>
+        <code className="meta">{replay.request}</code>
       </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="replay">
         <ReplayPane label="Your app today" response={replay.before} />
         <ReplayPane label="With this fix" response={replay.after} />
       </div>
-    </Card>
+    </>
   );
 }
 
 function ReplayPane({ label, response }: { label: string; response: ReplayedResponse }) {
   const exposed = response.status >= 200 && response.status < 300;
   return (
-    <div className={`rounded-xl border ${exposed ? "border-red-500/30" : "border-mint/30"}`}>
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
-        <span className="text-sm font-medium text-white">{label}</span>
-        <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold ${exposed ? "bg-red-500/15 text-red-300" : "bg-mint/10 text-mint"}`}>
-          {response.status || "no response"} · {exposed ? "data exposed" : "blocked"}
+    <figure className={`replay-pane ${exposed ? "exposed" : "blocked"}`}>
+      <figcaption>
+        <span>{label}</span>
+        <span className={`check-pill ${exposed ? "fail" : "pass"}`}>
+          {response.status || "No response"} · {exposed ? "data exposed" : "blocked"}
         </span>
-      </div>
-      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all px-4 py-3 font-mono text-xs leading-5 text-slate-300">{response.body || "(empty body)"}</pre>
-    </div>
+      </figcaption>
+      <pre>{response.body || "(empty body)"}</pre>
+    </figure>
   );
 }
 
-function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixProposal) => void }) {
+function Decision({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixProposal) => void }) {
   const [busy, setBusy] = useState<string>("");
   const [note, setNote] = useState<{ ok: boolean; text: string }>();
   const [instructions, setInstructions] = useState("");
@@ -236,10 +260,8 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
       if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
       onUpdate(data?.id ? data : undefined);
       if (action === "revise") setInstructions("");
-      const approved = fix.prUrl
-        ? "Approved. Antibody opens the pull request; the permanent merge happens in GitHub."
-        : "Approved. If GitHub is connected, Antibody opens a pull request in a few seconds. You merge it in GitHub.";
-      setNote({ ok: true, text: action === "approve" ? approved : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
+      // After approval the pull request status line below says what happened in GitHub.
+      setNote({ ok: true, text: action === "approve" ? "Approved." : action === "reject" ? "Rejected. Nothing will change in your code." : "Sent. Antibody is revising the fix." });
     } catch (err) {
       setNote({ ok: false, text: err instanceof Error ? err.message : "Request failed" });
     } finally {
@@ -248,79 +270,90 @@ function Actions({ fix, onUpdate }: { fix: FixProposal; onUpdate: (f?: FixPropos
   }
 
   return (
-    <Card className="mt-6 p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <button onClick={() => act("approve")} disabled={!!busy || fix.status !== "ready"} className="press inline-flex items-center gap-2 rounded-lg bg-mint px-5 py-2.5 font-semibold text-ink hover:brightness-110 disabled:opacity-50">
-          <Icon name="approve" className="h-4 w-4" /> {busy === "approve" ? "Approving…" : "Approve"}
-        </button>
-        <button onClick={() => act("reject")} disabled={!!busy || fix.status !== "ready"} className="press inline-flex items-center gap-2 rounded-lg border border-line px-5 py-2.5 font-semibold text-slate-200 hover:bg-white/5 disabled:opacity-50">
-          <Icon name="x" className="h-4 w-4" /> {busy === "reject" ? "Rejecting…" : "Reject"}
-        </button>
-        {fix.prUrl && <a href={fix.prUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">View pull request</a>}
-        {fix.prNote && !fix.prUrl && <span className="text-sm text-slate-400">{fix.prNote}</span>}
-        {fix.previewUrl && <a href={fix.previewUrl} target="_blank" rel="noreferrer" className="text-sm text-mint hover:underline">Open preview</a>}
+    <>
+      <div className="finding-row">
+        <h2>Your decision</h2>
+        <span className="meta">Antibody never merges on its own</span>
       </div>
-      <p className="mt-3 text-sm text-slate-400">{fix.prUrl ? "Approving opens a pull request. Permanent merges happen in GitHub, so you can always roll back." : "Approving records your decision. A pull request is opened only when GitHub is connected."}</p>
+      <div className="report-actions">
+        <button type="button" className="btn btn-lime" onClick={() => act("approve")} disabled={!!busy || fix.status !== "ready"}>
+          {busy === "approve" ? "Approving…" : "Approve"}
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => act("reject")} disabled={!!busy || fix.status !== "ready"}>
+          {busy === "reject" ? "Rejecting…" : "Reject"}
+        </button>
+        {fix.prUrl && (
+          <a className="btn btn-ghost" href={fix.prUrl} target="_blank" rel="noreferrer">
+            View pull request
+          </a>
+        )}
+        {fix.previewUrl && (
+          <a className="btn btn-ghost" href={fix.previewUrl} target="_blank" rel="noreferrer">
+            Open preview
+          </a>
+        )}
+      </div>
+      <p className="decision-note">
+        {fix.prNote && !fix.prUrl ? fix.prNote : fix.prUrl ? "Merge the pull request in GitHub, so you can always roll back." : "Approving records your decision. A pull request opens only when GitHub is connected."}
+      </p>
 
       <form
-        className="mt-5"
+        className="revise"
         onSubmit={(e) => {
           e.preventDefault();
           act("revise");
         }}
       >
-        <label htmlFor="revise" className="text-sm font-medium text-slate-200">Ask for changes</label>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+        <label htmlFor="revise">Ask for changes</label>
+        <div>
           <textarea
             id="revise"
             rows={2}
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
             disabled={decided}
-            placeholder="e.g. Keep the public pricing page open, only lock down /admin"
-            className="min-h-[3rem] flex-1 rounded-lg border border-line bg-black/30 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:border-mint/60 focus:outline-none disabled:opacity-50"
+            placeholder="e.g. Keep admins able to read the stats, only block everyone else"
           />
-          <button type="submit" disabled={!!busy || decided || !instructions.trim()} className="press rounded-lg border border-mint/50 px-5 py-2 font-semibold text-mint hover:bg-mint/10 disabled:opacity-50">
+          <button type="submit" className="btn btn-ghost" disabled={!!busy || decided || !instructions.trim()}>
             {busy === "revise" ? "Sending…" : "Send"}
           </button>
         </div>
       </form>
       {note && (
-        <p role={note.ok ? "status" : "alert"} className={`animate-rise mt-4 rounded-lg px-3 py-2 text-sm ${note.ok ? "bg-mint/10 text-mint" : "border border-red-500/40 bg-red-500/10 text-red-200"}`}>
+        <p role={note.ok ? "status" : "alert"} className={note.ok ? "decision-ok" : "alert"}>
           {note.text}
         </p>
       )}
-    </Card>
+    </>
   );
 }
 
 function DiffView({ diff }: { diff: string }) {
   const rows = parseDiff(diff);
   return (
-    <div className="overflow-x-auto rounded-2xl border border-line bg-black/40 font-mono text-[13px] leading-6">
-      <table className="w-full border-collapse">
+    <div className="diff-table">
+      <table>
         <tbody>
           {rows.map((r, i) => {
             if (r.kind === "file")
               return (
-                <tr key={i} className="bg-panel">
-                  <td colSpan={3} className="border-y border-line px-4 py-2 font-sans text-sm font-semibold text-white">{r.text}</td>
+                <tr key={i} className="file">
+                  <td colSpan={3}>{r.text}</td>
                 </tr>
               );
             if (r.kind === "hunk")
               return (
-                <tr key={i} className="bg-sky-400/5 text-sky-300/80">
-                  <td colSpan={3} className="px-4">{r.text}</td>
+                <tr key={i} className="hunk">
+                  <td colSpan={3}>{r.text}</td>
                 </tr>
               );
-            const cls = r.kind === "add" ? "bg-emerald-500/10 text-emerald-200" : r.kind === "del" ? "bg-red-500/10 text-red-200" : "text-slate-300";
             const sign = r.kind === "add" ? "+" : r.kind === "del" ? "-" : " ";
             return (
-              <tr key={i} className={cls}>
-                <td className="w-12 select-none px-2 text-right text-slate-600">{r.oldNo ?? ""}</td>
-                <td className="w-12 select-none px-2 text-right text-slate-600">{r.newNo ?? ""}</td>
-                <td className="whitespace-pre px-3">
-                  <span className="select-none opacity-60">{sign}</span>
+              <tr key={i} className={r.kind}>
+                <td className="no">{r.oldNo ?? ""}</td>
+                <td className="no">{r.newNo ?? ""}</td>
+                <td className="code">
+                  <span className="sign">{sign}</span>
                   {r.text}
                 </td>
               </tr>
