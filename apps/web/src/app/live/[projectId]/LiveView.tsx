@@ -4,6 +4,7 @@ import type { ActivityEvent } from "@antibody/core";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { BlockedBanner } from "@/components/BlockedBanner";
 import { ACTIVITY_META, Card, Icon, Logo, timeAgo } from "@/components/ui";
 import { usePoll } from "@/components/usePoll";
 
@@ -28,12 +29,6 @@ export function LiveView({ startCode }: { startCode: string }) {
     if (fresh.length) setBanner(fresh.at(-1)!);
   }, [events]);
 
-  useEffect(() => {
-    if (!banner) return;
-    const t = setTimeout(() => setBanner(null), BANNER_MS);
-    return () => clearTimeout(t);
-  }, [banner]);
-
   const count = (t: ActivityEvent["type"]) => events.filter((e) => e.type === t).length;
   const thread = events.filter((e) => e.type === "message_in" || e.type === "message_out" || e.type === "call");
 
@@ -52,18 +47,7 @@ export function LiveView({ startCode }: { startCode: string }) {
       </div>
 
       <div aria-live="assertive">
-        {banner && (
-          <div role="alert" className="animate-rise mt-6 flex items-center gap-5 rounded-2xl border border-red-500/60 bg-red-600/20 p-6 shadow-2xl shadow-red-900/40">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-red-500 text-white">
-              <Icon name="ban" className="h-8 w-8" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold uppercase tracking-widest text-red-200">Attack blocked</p>
-              <p className="text-2xl font-semibold text-white sm:text-3xl">{banner.title}</p>
-              {banner.detail && <p className="mt-1 truncate text-red-100/80">{banner.detail}</p>}
-            </div>
-          </div>
-        )}
+        {banner && <BlockedBanner key={banner.id} event={banner} onDone={() => setBanner(null)} />}
       </div>
 
       <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
