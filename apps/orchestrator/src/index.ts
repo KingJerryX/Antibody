@@ -76,7 +76,7 @@ async function draftFix(fix: FixProposal, instructions?: string): Promise<FixPro
   const fixId = fix.id;
   const finding = (await findFinding(fix.findingId))!;
   try {
-    const draft = await fixer.draft(finding, instructions);
+    const draft = await fixer.draft(finding, instructions, (patch) => void saveFix(fixId, patch));
     const ready = await saveFix(fixId, { ...draft, status: "ready" });
     await logActivity({ projectId: fix.projectId, type: "fix_ready", title: `Fix ready: ${finding.title}`, detail: `${draft.linesChanged} lines, confidence ${draft.confidence}${draft.author === "mock" ? " [mock fixer]" : ""}`, channel: "web", refId: fixId });
     await notify(fix.projectId, finding.severity, `Fix ready for "${finding.title}": ${draft.summary.whatChanges} Review it, then reply YES ${fixId} (merging happens in GitHub).`, false, fixId);
@@ -89,9 +89,12 @@ async function draftFix(fix: FixProposal, instructions?: string): Promise<FixPro
   }
 }
 
+/** Starts a fix for the finding, or returns the one already in progress so repeat clicks don't spawn duplicates. */
 async function startFix(findingId: string): Promise<FixProposal | undefined> {
   const finding = await findFinding(findingId);
   if (!finding) return undefined;
+  const open = (await readDb()).fixes.find((f) => f.findingId === findingId && (f.status === "drafting" || f.status === "ready"));
+  if (open) return open;
   const fix: FixProposal = {
     id: newId("fix"),
     projectId: finding.projectId,
@@ -233,14 +236,14 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     }
     if (action === "reject") {
       if (!["ready", "drafting"].includes(fix.status)) return send(res, 409, { error: `fix is ${fix.status}` });
-      await logActivity({ projectId: fix.projectId, type: "approval", title: `Fix ${id} rejected`, channel: "web", refId: id });
+      await logActivity({ projectId: fix.projectId, type: "rejection", title: `Fix ${id} rejected`, channel: "web", refId: id });
       return send(res, 200, await saveFix(id, { status: "rejected" }));
     }
     const instructions = str(json.instructions, 1000);
     if (!instructions) return send(res, 400, { error: "need instructions" });
     if (fix.status !== "ready" && fix.status !== "rejected") return send(res, 409, { error: `fix is ${fix.status}` });
     await updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Asked to revise ${id}: ${instructions.slice(0, 200)}` }));
-    const drafting = await saveFix(id, { status: "drafting" });
+    const drafting = await saveFix(id, { status: "drafting", diff: "", checks: [] });
     await logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: instructions.slice(0, 200), channel: "web", refId: id });
     const done = draftFix(fix, instructions);
     return send(res, 200, fix.author === "mock" ? await done : drafting);

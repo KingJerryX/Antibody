@@ -1,6 +1,6 @@
 "use client";
 
-import type { FixCheck, FixCheckName, FixProposal } from "@antibody/core";
+import type { ExploitReplay, FixCheck, FixCheckName, FixProposal, ReplayedResponse } from "@antibody/core";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Card, Icon, type IconName } from "@/components/ui";
@@ -15,10 +15,13 @@ const CHECK_LABEL: Record<FixCheckName, { title: string; sub: string }> = {
 };
 const CHECK_ORDER = Object.keys(CHECK_LABEL) as FixCheckName[];
 
-const CHECK_LOOK: Record<FixCheck["status"], { icon: IconName; cls: string; text: string }> = {
+type CheckState = FixCheck["status"] | "waiting";
+
+const CHECK_LOOK: Record<CheckState, { icon: IconName; cls: string; text: string }> = {
   pass: { icon: "check", cls: "text-mint bg-mint/10", text: "Passed" },
   fail: { icon: "x", cls: "text-red-300 bg-red-500/15", text: "Failed" },
   pending: { icon: "clock", cls: "text-slate-300 bg-white/5 animate-pulse", text: "Running" },
+  waiting: { icon: "clock", cls: "text-slate-500 bg-white/5", text: "Waiting for the fix" },
   skipped: { icon: "arrow", cls: "text-slate-400 bg-white/5", text: "Skipped" },
 };
 
@@ -29,6 +32,17 @@ const STATUS_LABEL: Record<FixProposal["status"], string> = {
   approved: "Approved",
   merged: "Merged",
   rolled_back: "Rolled back",
+};
+
+/** Where a fix is in its life: Droid writing it, Antibody attacking the patched copy, or finished. */
+type Phase = "writing" | "verifying" | "done";
+
+const phaseOf = (fix: FixProposal): Phase => (fix.status !== "drafting" ? "done" : fix.diff ? "verifying" : "writing");
+
+const PHASE_NOTE: Record<Phase, string> = {
+  writing: "Droid is writing the fix on a private copy of your app.",
+  verifying: "Antibody is attacking the patched copy to prove the hole is closed.",
+  done: "Plain English first. The code is below if you want it.",
 };
 
 export function FixView() {
@@ -69,7 +83,9 @@ export function FixView() {
     );
   }
 
+  const phase = phaseOf(fix);
   const checks = CHECK_ORDER.map((name) => fix.checks.find((c) => c.name === name) ?? { name, status: "pending" as const, detail: "" });
+  const replay = fix.checks.find((c) => c.name === "exploit_test")?.replay;
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-12">
@@ -82,7 +98,7 @@ export function FixView() {
         )}
       </div>
       <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white">Review this fix</h1>
-      <p className="mt-2 text-slate-400">Plain English first. The code is below if you want it.</p>
+      <p className="mt-2 text-slate-400" aria-live="polite">{PHASE_NOTE[phase]}</p>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_340px]">
         <div className="space-y-4">
@@ -96,7 +112,9 @@ export function FixView() {
             <dl className="grid grid-cols-3 gap-3 text-center">
               <div>
                 <dt className="text-xs text-slate-400">Confidence</dt>
-                <dd className={`mt-1 text-lg font-semibold capitalize ${fix.confidence === "high" ? "text-mint" : fix.confidence === "medium" ? "text-amber-200" : "text-red-300"}`}>{fix.confidence}</dd>
+                <dd className={`mt-1 text-lg font-semibold capitalize ${phase === "writing" ? "text-slate-500" : fix.confidence === "high" ? "text-mint" : fix.confidence === "medium" ? "text-amber-200" : "text-red-300"}`}>
+                  {phase === "writing" ? "–" : fix.confidence}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-400">Files</dt>
@@ -112,12 +130,14 @@ export function FixView() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-400">Checks</h2>
             <ul className="space-y-3">
               {checks.map((c) => (
-                <CheckRow key={c.name} check={c} />
+                <CheckRow key={c.name} check={c} state={phase === "writing" ? "waiting" : c.status} />
               ))}
             </ul>
           </Card>
         </aside>
       </div>
+
+      {replay && <AttackReplay replay={replay} />}
 
       <Actions
         fix={fix}
@@ -147,9 +167,9 @@ function Explain({ title, body, icon, tone }: { title: string; body: string; ico
   );
 }
 
-function CheckRow({ check }: { check: FixCheck }) {
+function CheckRow({ check, state }: { check: FixCheck; state: CheckState }) {
   const label = CHECK_LABEL[check.name];
-  const look = CHECK_LOOK[check.status];
+  const look = CHECK_LOOK[state];
   return (
     <li className="flex gap-3">
       <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${look.cls}`}>
@@ -163,6 +183,37 @@ function CheckRow({ check }: { check: FixCheck }) {
         </p>
       </div>
     </li>
+  );
+}
+
+/** The same request, sent to the app as it is and to the patched copy. */
+function AttackReplay({ replay }: { replay: ExploitReplay }) {
+  return (
+    <Card className="animate-rise mt-6 p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">Attack replay</h2>
+        <code className="font-mono text-sm text-slate-200">{replay.request}</code>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <ReplayPane label="Your app today" response={replay.before} />
+        <ReplayPane label="With this fix" response={replay.after} />
+      </div>
+    </Card>
+  );
+}
+
+function ReplayPane({ label, response }: { label: string; response: ReplayedResponse }) {
+  const exposed = response.status >= 200 && response.status < 300;
+  return (
+    <div className={`rounded-xl border ${exposed ? "border-red-500/30" : "border-mint/30"}`}>
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <span className="text-sm font-medium text-white">{label}</span>
+        <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold ${exposed ? "bg-red-500/15 text-red-300" : "bg-mint/10 text-mint"}`}>
+          {response.status || "no response"} · {exposed ? "data exposed" : "blocked"}
+        </span>
+      </div>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all px-4 py-3 font-mono text-xs leading-5 text-slate-300">{response.body || "(empty body)"}</pre>
+    </div>
   );
 }
 

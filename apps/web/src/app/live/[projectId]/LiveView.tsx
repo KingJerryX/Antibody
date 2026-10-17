@@ -6,16 +6,15 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BlockedBanner } from "@/components/BlockedBanner";
 import { ACTIVITY_META, Card, Icon, Logo, timeAgo } from "@/components/ui";
+import { type Health, useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
-
-type Health = { orchestrator: "up" | "down"; integrations?: Record<string, "live" | "mock" | "disabled"> };
 
 const BANNER_MS = 8000;
 
 export function LiveView({ startCode }: { startCode: string }) {
   const { projectId } = useParams<{ projectId: string }>();
   const { data: events = [], error } = usePoll<ActivityEvent[]>(`/api/activity?projectId=${encodeURIComponent(projectId)}`, 2000);
-  const { data: health } = usePoll<Health>("/api/health", 10_000);
+  const health = useHealth();
   const [banner, setBanner] = useState<ActivityEvent | null>(null);
   const seen = useRef<Set<string> | null>(null);
 
