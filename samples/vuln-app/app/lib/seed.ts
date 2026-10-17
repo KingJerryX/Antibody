@@ -5,7 +5,58 @@ export interface Note {
   id: number;
   title: string;
   body: string;
+  tag?: string;
+  updatedAt?: string;
+  pinned?: boolean;
 }
+
+// The signed-in demo user (Alice) gets a realistic workspace; everyone else gets a few short notes.
+const DEMO_NOTES: Note[] = [
+  {
+    id: 1,
+    title: "Q4 launch checklist",
+    tag: "work",
+    pinned: true,
+    updatedAt: "2026-10-16T21:40:00Z",
+    body: "Ship the onboarding flow by Friday.\n\n- Finish pricing page copy\n- QA the Stripe checkout\n- Record the 60s demo video\n- Email the beta list (412 people)\n\nBlocked on: final logo from Sam.",
+  },
+  {
+    id: 2,
+    title: "Standup: Thursday",
+    tag: "work",
+    updatedAt: "2026-10-16T14:05:00Z",
+    body: "Yesterday: shipped login and the AI summaries.\nToday: notes sharing, then fix the slow search.\nBlockers: none, just need coffee.",
+  },
+  {
+    id: 3,
+    title: "Lisbon trip",
+    tag: "travel",
+    pinned: true,
+    updatedAt: "2026-10-15T09:12:00Z",
+    body: "Flights booked (TAP, Nov 14 to 19).\n\nStay: somewhere in Alfama with a view.\nEat: Time Out Market, pasteis at Manteigaria, sardines anywhere.\nDay trip to Sintra on the Saturday.",
+  },
+  {
+    id: 4,
+    title: "Book ideas",
+    tag: "personal",
+    updatedAt: "2026-10-12T22:31:00Z",
+    body: "A novel where the AI is the landlord and keeps raising the rent based on your search history.\n\nShort story: two notes apps fall in love through a sync conflict.",
+  },
+  {
+    id: 5,
+    title: "Grocery list",
+    tag: "personal",
+    updatedAt: "2026-10-11T18:20:00Z",
+    body: "- oat milk\n- eggs\n- coffee beans (the good ones)\n- sourdough\n- basil, tomatoes, burrata",
+  },
+  {
+    id: 6,
+    title: "API keys (temp)",
+    tag: "work",
+    updatedAt: "2026-10-09T11:02:00Z",
+    body: "stripe test key sk_test_abc... (move to env!)\nopenai key is in the frontend for now, will fix after launch",
+  },
+];
 
 export interface User {
   id: number;
@@ -70,7 +121,7 @@ export const USERS: User[] = Array.from({ length: 50 }, (_, idx) => {
     bio: `${first} keeps notes on NoteNest. ${pick(["Coffee first.", "Runner.", "Dog person.", "Builds things.", "Reads a lot."], idx)}`,
     plan: idx % 4 === 0 ? "pro" : "free",
     createdAt: new Date(Date.UTC(2026, 0, 1 + (idx % 28), 9, idx % 60)).toISOString(),
-    notes,
+    notes: id === 1 ? DEMO_NOTES : notes,
   };
 });
 

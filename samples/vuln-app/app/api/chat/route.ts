@@ -12,6 +12,20 @@ export async function POST(req: Request) {
   }
   // Pretend to call an LLM.
   const { aiSpend, chatCalls } = chargeChat();
-  const reply = `NoteNest AI: here's a summary of "${String(prompt).slice(0, 60)}" — looks good!`;
-  return NextResponse.json({ reply, aiSpend, chatCalls });
+  return NextResponse.json({ reply: fakeModel(String(prompt)), aiSpend, chatCalls });
+}
+
+/** Canned "model": the client sends "<question>\n\n<title>: <body>". Good enough to look real on stage. */
+function fakeModel(prompt: string): string {
+  const [question, ...rest] = prompt.split("\n\n");
+  const note = rest.join("\n\n");
+  const items = note.split("\n").filter((l) => l.trim().startsWith("- ")).map((l) => l.trim().slice(2));
+  if (/to-?do/i.test(question)) {
+    const todos = items.length ? items : note.split(/[.\n]/).map((s) => s.trim()).filter(Boolean).slice(1, 5);
+    return todos.length ? `Here's your to-do list:\n${todos.map((t) => `☐ ${t}`).join("\n")}` : "There's nothing actionable in this note yet.";
+  }
+  const [title, ...body] = note.split(": ");
+  const gist = body.join(": ").split(/\n|\. /).find((s) => s.trim())?.trim();
+  if (!gist) return "This note is empty. Write something and I'll summarize it.";
+  return `${title.trim()} in one line: ${gist.replace(/\.$/, "")}.${items.length ? ` It has ${items.length} open items.` : ""}`;
 }

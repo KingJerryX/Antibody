@@ -2,27 +2,17 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata = {
-  title: "NoteNest — your notes, everywhere",
-  description: "A tiny notes app (intentionally vulnerable demo).",
+  title: "NoteNest: your notes, everywhere",
+  description: "Notes that sync everywhere, with an AI assistant built in.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <div className="banner">
-          Demo app — intentionally vulnerable. Do not deploy. Built to be hacked on stage.
-        </div>
-        <header className="topbar">
-          <div className="brand">
-            <span className="logo">▧</span> NoteNest
-          </div>
-          <nav>
-            <a href="/">Notes</a>
-            <a href="/profile">Profile</a>
-          </nav>
-        </header>
-        <main className="wrap">{children}</main>
+        {children}
+        {/* Small but always visible: this app is deliberately insecure and must never be deployed. */}
+        <div className="demo-badge">Demo app · intentionally vulnerable</div>
       </body>
     </html>
   );

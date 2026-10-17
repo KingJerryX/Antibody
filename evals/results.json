@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-17T07:13:12.972Z",
-  "mode": "mock",
+  "generatedAt": "2026-10-17T16:43:03.147Z",
+  "mode": "live",
   "target": "sample-app",
   "scanner": {
     "seeded": 6,
@@ -13,7 +13,7 @@
     "normal": 20,
     "wronglyBlocked": 0,
     "requestsBeforeBlock": 10,
-    "p95Ms": 105.5
+    "p95Ms": 1217.7
   },
   "fixes": {
     "attempted": 0,
