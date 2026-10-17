@@ -204,3 +204,56 @@ function prBody(fix: FixProposal): string {
     `Approved on Antibody (fix \`${fix.id}\`). Antibody never merges: review the diff and merge when you're happy.`,
   ].join("\n");
 }
+
+const VERIFY_BRANCH = "antibody/verify-ownership";
+
+/**
+ * Opens (or finds) a pull request that adds public/.well-known/antibody-verify containing the site's host.
+ * Merging it and deploying proves the owner controls both the repo and the site, which unlocks live checks.
+ * REST only (no git), so it runs on Vercel too.
+ */
+export async function openVerifyPullRequest(project: Project): Promise<string> {
+  if (!connected(project)) throw new Error("Connect the site's GitHub repo first.");
+  const token = await installationToken(project.githubInstallationId);
+  const repo = `/repos/${project.repo}`;
+  const host = new URL(project.url).host;
+  const { default_branch: base } = await gh<{ default_branch: string }>(repo, token);
+  const { object } = await gh<{ object: { sha: string } }>(`${repo}/git/ref/heads/${encodeURIComponent(base)}`, token);
+
+  // Next/Vite serve public/ next to their config, which may sit in a subfolder of a monorepo. Shallowest wins.
+  const { tree } = await gh<{ tree: { path: string }[] }>(`${repo}/git/trees/${object.sha}?recursive=1`, token);
+  const config = tree
+    .map((t) => t.path)
+    .filter((p) => /(^|\/)(next|vite)\.config\.(js|mjs|cjs|ts|mts)$/.test(p) && !p.includes("node_modules/"))
+    .sort((a, b) => a.split("/").length - b.split("/").length)[0];
+  const dir = config?.includes("/") ? config.slice(0, config.lastIndexOf("/") + 1) : "";
+  const path = `${dir}public/.well-known/antibody-verify`;
+
+  const existing = await gh<{ html_url: string }[]>(`${repo}/pulls?state=open&head=${encodeURIComponent(`${project.repo.split("/")[0]}:${VERIFY_BRANCH}`)}`, token);
+  if (existing[0]) return existing[0].html_url;
+
+  // A leftover branch from an earlier, closed PR is reset to the current base.
+  await gh(`${repo}/git/refs`, token, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${VERIFY_BRANCH}`, sha: object.sha }) }).catch(() =>
+    gh(`${repo}/git/refs/heads/${VERIFY_BRANCH}`, token, { method: "PATCH", body: JSON.stringify({ sha: object.sha, force: true }) }),
+  );
+  await gh(`${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, token, {
+    method: "PUT",
+    body: JSON.stringify({ message: "Prove ownership of this site to Antibody", content: Buffer.from(`${host}\n`).toString("base64"), branch: VERIFY_BRANCH }),
+  });
+  const pr = await gh<{ html_url: string }>(`${repo}/pulls`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      title: "Verify site ownership for Antibody",
+      head: VERIFY_BRANCH,
+      base,
+      body: [
+        `Adds \`${path}\` containing \`${host}\`.`,
+        "",
+        "Once this is merged and deployed, Antibody can see the file on your live site. That proves you control both this repo and the site, so Antibody can run its live checks (they call your API without logging in to look for holes).",
+        "",
+        "Nothing else changes. Delete the file any time to turn live checks off.",
+      ].join("\n"),
+    }),
+  });
+  return pr.html_url;
+}

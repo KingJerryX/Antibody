@@ -76,8 +76,13 @@ async function replay(url: string): Promise<ReplayedResponse> {
 /** Origin of the app the finding came from, only if we're allowed to probe it. */
 async function verifiedOrigin(finding: Finding): Promise<string | undefined> {
   const origin = await originOf(finding);
+  if (!origin) return undefined;
+  const host = new URL(origin).host.toLowerCase();
   const verified = (process.env.ANTIBODY_VERIFIED_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase());
-  return origin && verified.includes(new URL(origin).host) ? origin : undefined;
+  // Or the project's own site, once a scan saw its verify file (the scan clears this if the file goes away).
+  const project = (await readDb()).projects.find((p) => p.id === finding.projectId);
+  const proven = project?.verifiedDomain === true && URL.parse(project.url)?.host.toLowerCase() === host;
+  return verified.includes(host) || proven ? origin : undefined;
 }
 
 /** Every other page and GET route must answer the patched app the same way it answers the original. */

@@ -3,19 +3,7 @@
   "services": {
     "web": {
       "root": "apps/web",
-      "framework": "nextjs",
-      "bindings": [
-        {
-          "type": "service",
-          "service": "orchestrator",
-          "format": "url",
-          "env": "ANTIBODY_ORCHESTRATOR_URL"
-        }
-      ]
-    },
-    "orchestrator": {
-      "root": "apps/orchestrator",
-      "entrypoint": "src/index.ts"
+      "framework": "nextjs"
     }
   },
   "rewrites": [

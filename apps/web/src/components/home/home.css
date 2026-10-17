@@ -129,11 +129,6 @@
   
 .ab .field-error { color: var(--danger); font-size: 13px; min-height: 1.2em; margin-top: 8px; }
 
-.ab .live-check {
-  display: flex; align-items: flex-start; gap: 8px; margin-top: 12px;
-  text-align: left; font-size: 13px; line-height: 1.4; color: var(--muted);
-}
-.ab .live-check input { margin-top: 2px; }
 .ab .field-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 8px; text-align: left; }
 .ab .field-note code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
   
@@ -1292,6 +1287,14 @@
 }
 
 .ab .score-list li { color: var(--muted); font-size: 13px; }
+
+.ab .score-card .figure-of { font-size: 34px; color: var(--muted); letter-spacing: -0.02em; }
+.ab .score-card .check-cta { display: inline-flex; margin-top: 16px; }
+.ab .check-row span { display: inline-block; width: 1.1em; }
+.ab .check-row.pass span { color: var(--lime); }
+.ab .check-row.fail { color: var(--ink); }
+.ab .check-row.fail span { color: var(--danger); }
+.ab .check-row.not_run { opacity: 0.7; }
 
 .ab .scan-summary { padding: 0; text-align: left; }
 

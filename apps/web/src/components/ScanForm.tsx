@@ -1,20 +1,23 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 export function ScanForm() {
   const router = useRouter();
   const inputId = useId();
   const errorId = useId();
-  const liveId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const caretAfterPaste = useRef<number | null>(null);
   const [url, setUrl] = useState("");
-  const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const host = hostOf(url);
+
+  // "Scan again" links from the setup page carry the site as ?url=.
+  useEffect(() => {
+    const preset = new URLSearchParams(window.location.search).get("url");
+    if (preset) setUrl(preset.slice(0, 2048));
+  }, []);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -29,7 +32,7 @@ export function ScanForm() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url, live }) });
+      const res = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
       const text = await res.text();
       let data: { error?: string; scanId?: string; report?: unknown } | null = null;
       try {
@@ -75,25 +78,7 @@ export function ScanForm() {
         </button>
       </div>
       <p className="field-error" id={errorId} role="alert">{error}</p>
-      <label className="live-check" htmlFor={liveId}>
-        <input id={liveId} type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-        <span>Run live checks. These call the site&apos;s API with no login.</span>
-      </label>
-      {live && host && (
-        <p className="field-note">
-          If {host} is not already verified, add <code>{`<meta name="antibody-verify" content="${host}">`}</code> to the page, or publish <code>{host}</code> at <code>/.well-known/antibody-verify</code>, then scan.
-        </p>
-      )}
+      <p className="field-note">Free scan: only what any visitor&apos;s browser can see. Connect GitHub for the full check.</p>
     </form>
   );
-}
-
-function hostOf(raw: string): string {
-  const s = raw.trim();
-  if (!s) return "";
-  try {
-    return new URL(/^https?:\/\//i.test(s) ? s : `http://${s}`).host;
-  } catch {
-    return "";
-  }
 }

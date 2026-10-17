@@ -2,14 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { connection } from "next/server";
-import { installationRepos, readGithubApp, startCodeFor } from "@antibody/core";
+import { installationRepos, readGithubApp, startCodeFor, type Project } from "@antibody/core";
 import { Card, Icon } from "@/components/ui";
 import { proxyToOrchestrator, readStore } from "@/lib/server";
 import { CopyButton, RefreshWhile } from "./ConnectClient";
 
 export const metadata = { title: "Set up | Antibody" };
 
-type Search = Promise<{ phoneError?: string }>;
+type Search = Promise<{ phoneError?: string; verifyError?: string }>;
 
 export default function ConnectPage({ params, searchParams }: { params: Promise<{ projectId: string }>; searchParams: Search }) {
   return (
@@ -69,8 +69,10 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   }
   // Phones registered with Photon from this page, each with the Antibody line Photon assigned it.
   const registered = memory?.phoneLines ?? [];
-  const phoneError = (await searchParams).phoneError?.slice(0, 300);
-  const steps = [project.verifiedDomain, Boolean(project.repo), linked.length > 0];
+  const search = await searchParams;
+  const phoneError = search.phoneError?.slice(0, 300);
+  const verifyError = search.verifyError?.slice(0, 300);
+  const steps = [Boolean(project.repo), project.verifiedDomain, linked.length > 0];
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-12">
@@ -88,19 +90,12 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
       <p className="mt-2 text-slate-400">{steps.filter(Boolean).length} of 3 done</p>
 
       <ol className="mt-8 space-y-4">
-        <Step done={project.verifiedDomain} title="Verify your site">
-          {project.verifiedDomain ? (
-            <p>Done. Antibody can test {project.name} to prove what it finds.</p>
-          ) : (
-            <p>
-              Antibody only probes sites you’ve proved you own. Add <code className="font-mono text-slate-200">{project.name}</code> to{" "}
-              <code className="font-mono text-slate-200">ANTIBODY_VERIFIED_DOMAINS</code>. Domain verification (a DNS record) replaces this in production.
-            </p>
-          )}
-        </Step>
-
         <Step done={Boolean(project.repo)} title="Connect GitHub">
           <GithubStep projectId={projectId} repo={project.repo} installationId={project.githubInstallationId} />
+        </Step>
+
+        <Step done={project.verifiedDomain} title="Prove you own the site">
+          <VerifyStep project={project} error={verifyError} />
         </Step>
 
         <Step done={linked.length > 0} title="Get alerts on your phone">
@@ -231,6 +226,52 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
     </>
   );
 }
+
+/** Live checks call the site's API with no login, so they wait for proof the owner controls the site. */
+function VerifyStep({ project, error }: { project: Project; error?: string }) {
+  const host = URL.parse(project.url)?.host ?? project.name;
+  const button = "mt-4 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110";
+  if (project.verifiedDomain) {
+    return <p>Done. Antibody found your verification file on {host}, so every scan runs the live checks too.</p>;
+  }
+  return (
+    <>
+      {!project.repo ? (
+        <p>Connect GitHub first. Antibody then opens a one-file pull request; merging it proves you control both the code and the site, which unlocks the live checks.</p>
+      ) : project.verifyPrUrl ? (
+        <>
+          <p>
+            Merge{" "}
+            <a href={project.verifyPrUrl} className="text-mint hover:underline">
+              the verification pull request
+            </a>
+            . Once your site redeploys, scan it again: Antibody sees the file and runs the live checks.
+          </p>
+          <Link href={`/?url=${encodeURIComponent(project.url)}#scan`} className={button}>
+            Scan again
+          </Link>
+        </>
+      ) : (
+        <>
+          <p>Antibody opens a pull request that adds one small file to your site. Merge it, and the live checks unlock. Nothing else in your code changes.</p>
+          <form action="/api/github/verify" method="post">
+            <input type="hidden" name="projectId" value={project.id} />
+            <button className={button}>Open the verification pull request</button>
+          </form>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-300">
+          {error}
+        </p>
+      )}
+      <p className="mt-3 text-xs text-slate-500">
+        Not deploying from GitHub? Add <code className="font-mono">{`<meta name="antibody-verify" content="${host}">`}</code> to your homepage instead.
+      </p>
+    </>
+  );
+}
+
 
 function Step({ done, title, badge, children }: { done: boolean; title: string; badge?: string; children: React.ReactNode }) {
   return (

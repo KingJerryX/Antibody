@@ -149,7 +149,8 @@ describe("scanUrl active gating", () => {
       fetchImpl: impl,
     });
     // only the page itself was fetched — no RLS, route, or rate-limit probes
-    expect(calls.every((c) => c.url === "https://notmine.com/")).toBe(true);
+    // The page, plus the one public ownership file every scan looks for.
+    expect(calls.every((c) => c.url === "https://notmine.com/" || c.url === "https://notmine.com/.well-known/antibody-verify")).toBe(true);
     expect(calls.some((c) => c.url.includes("/rest/v1/"))).toBe(false);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
     expect(r.skipped?.some((s) => s.startsWith("Live checks did not run"))).toBe(true);
@@ -306,7 +307,7 @@ describe("scanUrl active gating", () => {
       },
       { test: (u) => u === "https://mine.example/api/admin", json: { users: 3 } },
     ]);
-    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], live: true, fetchImpl: impl });
+    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     expect(calls.some((c) => c.url === "https://mine.example/api/admin")).toBe(true);
     expect(r.findings.some((f) => f.kind === "unprotected_route")).toBe(true);
     expect(r.skipped ?? []).toEqual([]);
@@ -316,10 +317,10 @@ describe("scanUrl active gating", () => {
     const { impl, calls } = mockFetch([
       { test: (u) => u === "https://mine.example/", body: "<html></html>", headers: SECURE_HEADERS },
     ]);
-    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], live: true, fetchImpl: impl });
+    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     expect(calls.some((c) => c.url.includes("/.well-known/antibody-verify"))).toBe(true);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
-    expect(r.skipped?.some((s) => s.includes("antibody-verify"))).toBe(true);
+    expect(r.skipped?.some((s) => s.includes("prove you own"))).toBe(true);
   });
 
   it("errors cleanly on an unreachable target", async () => {

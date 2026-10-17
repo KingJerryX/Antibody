@@ -49,7 +49,24 @@ export interface ScanReport {
   passed: string[];
   /** Checks that did not run. Kept out of `passed` so a skipped probe does not look clean. */
   skipped?: string[];
+  /** Every check in the suite with its outcome, so the report says exactly what ran. */
+  checks?: ScanCheck[];
   error?: string;
+}
+
+/**
+ * passive: safe on any site (what a visitor's browser already sees). live: calls the site's API, only after
+ * the owner proves they control it. code: reads the connected GitHub repo.
+ */
+export type CheckTier = "passive" | "live" | "code";
+
+export interface ScanCheck {
+  id: string;
+  label: string;
+  tier: CheckTier;
+  status: "pass" | "fail" | "not_run";
+  /** Why it failed or didn't run, in plain English. */
+  note?: string;
 }
 
 export type FixCheckName = "exploit_test" | "behavior_tests" | "preview_replay" | "second_review";
@@ -175,5 +192,7 @@ export interface Project {
   githubInstallationId?: number;
   /** Only verified projects may be actively probed. */
   verifiedDomain: boolean;
+  /** The pull request that adds /.well-known/antibody-verify, while it waits to be merged and deployed. */
+  verifyPrUrl?: string;
   createdAt: string;
 }

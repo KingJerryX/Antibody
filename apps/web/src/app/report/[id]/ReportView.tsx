@@ -1,6 +1,6 @@
 "use client";
 
-import type { Finding, ScanReport } from "@antibody/core";
+import type { CheckTier, Finding, ScanCheck, ScanReport } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -169,12 +169,70 @@ function Failed({ scan }: { scan: ScanReport }) {
   );
 }
 
+const TIERS: [tier: CheckTier, label: string][] = [
+  ["passive", "What any visitor can see"],
+  ["live", "Live checks on your API"],
+  ["code", "Your code on GitHub"],
+];
+const MARK: Record<ScanCheck["status"], string> = { pass: "✓", fail: "✗", not_run: "–" };
+
+/** Honest summary: how many checks ran, which failed, and what connecting GitHub would add. No score. */
+function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck[]; findings: Finding[]; projectId: string; canFix: boolean }) {
+  const ran = checks.filter((c) => c.status !== "not_run");
+  const failed = checks.filter((c) => c.status === "fail");
+  const waiting = checks.length - ran.length;
+  const tone = failed.length === 0 ? "" : findings.some((f) => f.severity === "critical" || f.severity === "high") ? "bad" : "warn";
+  return (
+    <aside className="score-card" aria-label="Checks">
+      <p className="kicker">Checks run</p>
+      <p className={`figure ${tone}`}>
+        {ran.length}
+        <span className="figure-of">/{checks.length}</span>
+      </p>
+      <p className="status-line">
+        {failed.length ? `${failed.length} failed.` : "None failed."}{" "}
+        {waiting ? `${waiting} didn't run yet: they need you to connect GitHub and prove you own the site.` : "Every check ran."}
+      </p>
+      {waiting > 0 && (
+        <Link className="btn btn-lime check-cta" href={`/connect/${projectId}`}>
+          {canFix ? "Prove you own the site" : "Connect GitHub for the full check"}
+        </Link>
+      )}
+      <div className="score-rows">
+        {TIERS.map(([tier, label]) => {
+          const rows = checks.filter((c) => c.tier === tier);
+          if (!rows.length) return null;
+          const run = rows.filter((c) => c.status !== "not_run").length;
+          return (
+            <details key={tier} open={tier === "passive" || rows.some((c) => c.status === "fail")}>
+              <summary>
+                <span>{label}</span>
+                <b>{run ? `${run}/${rows.length}` : "not run"}</b>
+              </summary>
+              <ul className="score-list">
+                {rows.map((c) => (
+                  <li key={c.id} className={`check-row ${c.status}`} title={c.note}>
+                    <span aria-label={c.status.replace("_", " ")}>{MARK[c.status]}</span> {c.label}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
+
 function Done({ scan, findings, offline, canFix }: { scan: ScanReport; findings: Finding[]; offline: boolean; canFix: boolean }) {
   const surfaceOnly = liveChecksSkipped(scan.skipped);
   const s = securityScore(findings, scan.skipped);
   const tone = s >= 85 ? "" : s >= 55 ? "warn" : "bad";
   return (
     <div className="report">
+      {scan.checks?.length ? (
+        <ChecksCard checks={scan.checks} findings={findings} projectId={scan.projectId} canFix={canFix} />
+      ) : (
       <aside className="score-card" aria-label="Security score">
         <p className="kicker">Security score</p>
         <p className={`figure ${tone}`}>{s}</p>
@@ -218,6 +276,7 @@ function Done({ scan, findings, offline, canFix }: { scan: ScanReport; findings:
           )}
         </div>
       </aside>
+      )}
 
       <section className="scan-summary" aria-labelledby="scan-summary">
         <p className="kicker">Scan summary</p>

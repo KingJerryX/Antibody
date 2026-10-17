@@ -1,6 +1,6 @@
 // Orchestrator: plain node:http on :3001. Routes are the contract in AGENTS.md / the web app's proxy.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { isGithubConnected, logActivity, memoryFor, newId, openPullRequest, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
+import { isGithubConnected, logActivity, memoryFor, newId, openPullRequest, readDb, readGithubApp, updateDb, type FixProposal, type Severity } from "@antibody/core";
 import { bearerMatches, integrations, logIntegrations, maskHandle, toE164 } from "./integrations.ts";
 import { createMessenger, MockMessenger } from "./messenger.ts";
 import { canAct, handleText, ownerOf, projectFor } from "./conversation.ts";
@@ -8,6 +8,7 @@ import { createFixer, DroidFixer } from "./fixer.ts";
 import { deliveryFor } from "./policy.ts";
 import { placeCall } from "./voice.ts";
 import { handleGithubWebhook } from "./github.ts";
+import { auditGithubRepo } from "@antibody/scanner";
 
 const messenger = createMessenger();
 
@@ -201,7 +202,12 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = req.method ?? "GET";
 
-  if (method === "GET" && path === "/health") return send(res, 200, { ok: true, integrations: integrations() });
+  if (method === "GET" && path === "/health") {
+    // integrations() only sees a local app file; deployed, the GitHub App lives in Supabase.
+    const modes = integrations();
+    if (modes.github === "disabled" && (await readGithubApp().catch(() => undefined))) modes.github = "live";
+    return send(res, 200, { ok: true, integrations: modes });
+  }
   if (method !== "POST") return send(res, 404, { error: "not found" });
   // Requiring JSON forces a CORS preflight (which we never answer), so a web page in the owner's browser
   // can't fire /notify or /fixes at localhost with a "simple" text/plain POST. The GitHub webhook is HMAC-checked instead.
@@ -240,6 +246,14 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     });
     console.log(`[photon] registered ${maskHandle(handle)} -> line ${maskHandle(line)} for ${projectId}`);
     return send(res, 200, { handle, line, mode: messenger.mode });
+  }
+
+  // The website's scan asks for the code review here: Vercel has neither git nor Semgrep.
+  if (path === "/audit") {
+    const projectId = str(json.projectId, 100);
+    const project = (await readDb()).projects.find((p) => p.id === projectId);
+    if (!project || !isGithubConnected(project)) return send(res, 409, { error: "No connected GitHub repo for this project" });
+    return send(res, 200, await auditGithubRepo(project));
   }
 
   if (path === "/fixes") {

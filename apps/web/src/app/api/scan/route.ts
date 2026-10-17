@@ -1,7 +1,16 @@
 import { after } from "next/server";
 import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
-import { auditGithubRepo, auditRepo, mergeFindings, scanUrl } from "@antibody/scanner";
-import { repoDirFor, verifiedDomains } from "@/lib/server";
+import { auditGithubRepo, auditRepo, liveChecksRan, mergeFindings, scanChecks, scanUrl, type ReviewResult } from "@antibody/scanner";
+import { proxyToOrchestrator, repoDirFor, verifiedDomains } from "@/lib/server";
+
+/** Code review of the connected repo. Deployed, the orchestrator runs it: Vercel has neither git nor Semgrep. */
+async function auditConnectedRepo(project: Project & { repo: string }): Promise<ReviewResult> {
+  if (!process.env.VERCEL) return auditGithubRepo(project);
+  const res = await proxyToOrchestrator("/audit", { projectId: project.id });
+  const body = (await res.json().catch(() => ({}))) as Partial<ReviewResult> & { error?: string };
+  if (res.ok && Array.isArray(body.findings)) return { findings: body.findings, note: body.note ?? "", skipped: body.skipped };
+  return { findings: [], note: `Code audit skipped: couldn't clone ${project.repo} (${body.error ?? `orchestrator returned ${res.status}`})` };
+}
 
 function parseTarget(raw: unknown): URL | null {
   if (typeof raw !== "string" || !raw.trim() || raw.length > 2048) return null;
@@ -28,7 +37,8 @@ export async function POST(request: Request) {
         p = { id: `proj_${target.host.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: target.host, url: target.origin, verifiedDomain, createdAt: now } satisfies Project;
         db.projects.push(p);
       }
-      p.verifiedDomain = verifiedDomain; // the env list is the source of truth
+      // The env allowlist, or proof seen by an earlier scan (the verify file). This scan re-checks the proof.
+      p.verifiedDomain = verifiedDomain || p.verifiedDomain;
       const scan: ScanReport = { id: scanId, projectId: p.id, targetUrl: target.href, status: "running", startedAt: now, findings: [], passed: [] };
       db.scans.push(scan);
       return p;
@@ -43,8 +53,8 @@ export async function POST(request: Request) {
         // Code comes from the project's connected GitHub repo, else a local folder (ANTIBODY_REPOS).
         const repoDir = repoDirFor(target.host);
         const [result, audit] = await Promise.all([
-          scanUrl(target.href, { projectId: project.id, verifiedDomains: domains, live: body?.live === true }),
-          isGithubConnected(project) ? auditGithubRepo(project) : repoDir ? auditRepo(repoDir, project.id) : undefined,
+          scanUrl(target.href, { projectId: project.id, verifiedDomains: domains }),
+          isGithubConnected(project) ? auditConnectedRepo(project) : repoDir ? auditRepo(repoDir, project.id) : undefined,
         ]);
         report = { ...result, id: scanId, projectId: project.id, status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
         if (audit && report.status === "done") {
@@ -52,6 +62,7 @@ export async function POST(request: Request) {
           if (audit.note) report.passed = [...report.passed, audit.note];
           if (audit.skipped?.length) report.skipped = [...(report.skipped ?? []), ...audit.skipped];
         }
+        if (report.status === "done") report.checks = scanChecks(report, audit);
       } catch (err) {
         report = { id: scanId, projectId: project.id, targetUrl: target.href, status: "error", startedAt: now, finishedAt: new Date().toISOString(), findings: [], passed: [], error: err instanceof Error ? err.message : "Scan failed" };
       }
@@ -59,6 +70,12 @@ export async function POST(request: Request) {
         const i = db.scans.findIndex((s) => s.id === scanId);
         if (i >= 0) db.scans[i] = report;
         else db.scans.push(report);
+        // Live checks run only on a proven site, so this scan says whether it's still verified.
+        const p = db.projects.find((x) => x.id === project.id);
+        if (p && report.status === "done") {
+          p.verifiedDomain = liveChecksRan(report);
+          if (p.verifiedDomain) delete p.verifyPrUrl;
+        }
       });
       const serious = report.findings.filter((f) => f.severity === "critical" || f.severity === "high");
       await logActivity({

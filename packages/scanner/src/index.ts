@@ -3,16 +3,13 @@ import { newId } from "@antibody/core";
 import { findSupabase, redact, scanSecrets } from "./secrets.ts";
 import { inspectSurface, probeOwned } from "./surface.ts";
 export { auditCode, auditGithubRepo, auditRepo, mergeFindings } from "./code-audit.ts";
+export { liveChecksRan, scanChecks } from "./checks.ts";
+export type { ReviewResult } from "./repo-review.ts";
 
 export interface ScanOpts {
   projectId: string;
   /** Hosts ("host:port") that may be actively probed. Everything else is passive-only. */
   verifiedDomains: string[];
-  /**
-   * The person asked for live checks and will prove they can edit the site
-   * (a meta tag, or /.well-known/antibody-verify). Allowlisted hosts don't need this.
-   */
-  live?: boolean;
   /** Injectable for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -96,20 +93,12 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
   passed.push(...surface.passed);
 
-  // --- Active: a host on the allowlist, or one the owner just proved they can edit. ---
+  // --- Active: a host on the allowlist, or one whose owner published the verify file (Antibody opens a pull
+  // request for it from the setup page) or meta tag. Checked on every scan: one public GET, like Google's. ---
   const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
-  const listed = allow.has(target.host.toLowerCase());
-  let owned = listed;
-  if (!owned && opts.live) {
-    owned = provesOwnership(html, target.host) || (await wellKnown(fetchImpl, origin, target.host));
-  }
+  const owned = allow.has(target.host.toLowerCase()) || provesOwnership(html, target.host) || (await wellKnown(fetchImpl, origin, target.host));
   if (!owned) {
-    const tag = `<meta name="antibody-verify" content="${target.host}">`;
-    skipped.push(
-      opts.live
-        ? `Live checks did not run. Add ${tag} to the page, or publish ${target.host} at /.well-known/antibody-verify, then scan again with Run live checks on.`
-        : "Live checks did not run. They call this site's API with no login. Turn on Run live checks after the page proves you can edit it.",
-    );
+    skipped.push("Live checks did not run. They call this site's API with no login, so they wait until you prove you own it on the setup page.");
     return report({ status: "done", findings, passed, skipped });
   }
   // Active probes never follow redirects: a verified host could 3xx us onto a host that isn't verified.
