@@ -19,3 +19,6 @@ __pycache__/
 # local only: agent skills and the design preview
 .claude/
 preview/
+
+# throwaway copies Droid patches and Antibody re-tests
+.antibody-work/
