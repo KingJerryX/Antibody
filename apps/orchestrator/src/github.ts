@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { logActivity } from "@antibody/core";
 import { isLive } from "./integrations.ts";
 
-export function verifySignature(body: string, signature: string | undefined, secret: string): boolean {
+function verifySignature(body: string, signature: string | undefined, secret: string): boolean {
   if (!signature?.startsWith("sha256=")) return false;
   const want = Buffer.from(`sha256=${createHmac("sha256", secret).update(body).digest("hex")}`);
   const got = Buffer.from(signature);

@@ -1,5 +1,4 @@
 import { logActivity, type ActivityEvent, type ActivityType, type Channel } from "@antibody/core";
-import { json } from "@/lib/server";
 
 const TYPES: ActivityType[] = ["scan_started", "scan_done", "finding", "fix_drafting", "fix_ready", "message_out", "message_in", "call", "block", "approval", "undo"];
 const CHANNELS: Channel[] = ["imessage", "voice", "email", "github", "web"];
@@ -11,7 +10,7 @@ export async function POST(request: Request) {
   const projectId = str(b?.projectId, 100);
   const title = str(b?.title, 300);
   if (!projectId || !title || !TYPES.includes(b?.type)) {
-    return json({ error: "Body needs projectId, title and a valid type" }, 400);
+    return Response.json({ error: "Body needs projectId, title and a valid type" }, { status: 400 });
   }
   const event: Omit<ActivityEvent, "id" | "at"> = {
     projectId,
@@ -21,5 +20,5 @@ export async function POST(request: Request) {
     channel: CHANNELS.includes(b.channel) ? b.channel : undefined,
     refId: str(b.refId, 100),
   };
-  return json(logActivity(event), 201);
+  return Response.json(logActivity(event), { status: 201 });
 }

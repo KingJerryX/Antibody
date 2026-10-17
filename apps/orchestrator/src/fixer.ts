@@ -12,13 +12,11 @@ export interface Fixer {
   draft(finding: Finding, instructions?: string): Promise<FixDraft>;
 }
 
-export const countLines = (diff: string) =>
+const countLines = (diff: string) =>
   diff.split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l)).length;
 
-// Repo root = folder above apps/ (this file is apps/orchestrator/src/fixer.ts).
-const REPO_ROOT = resolve(import.meta.dirname, "../../..");
-/** The code Droid edits. ponytail: local sample app only; a cloned GitHub repo goes here once the GitHub App is wired. */
-const TARGET_DIR = resolve(REPO_ROOT, process.env.ANTIBODY_FIX_REPO_DIR ?? "samples/vuln-app");
+/** The code Droid edits (repo root is three folders up from this file). ponytail: local sample app only; a cloned GitHub repo goes here once the GitHub App is wired. */
+const TARGET_DIR = resolve(import.meta.dirname, "../../../samples/vuln-app");
 
 const FIX_SCHEMA = {
   type: "object",
@@ -54,6 +52,8 @@ export class DroidFixer implements Fixer {
       ].join("\n");
       const result = await run(prompt, {
         cwd,
+        // Windows: the SDK can't spawn npm's droid.cmd shim, so point it at droid.exe.
+        execPath: process.env.DROID_EXEC_PATH || undefined,
         autonomyLevel: AutonomyLevel.Low,
         outputFormat: { type: OutputFormatType.JsonSchema, schema: FIX_SCHEMA },
         // Only file edits/creates inside the temp copy, one at a time. Everything else (shell, MCP, ...) is cancelled.
@@ -327,21 +327,21 @@ const CANNED: Record<FindingKind, Canned> = {
   },
 };
 
-export class MockFixer implements Fixer {
+class MockFixer implements Fixer {
   async draft(finding: Finding, instructions?: string): Promise<FixDraft> {
-    const c = CANNED[finding.kind];
-    const { exploit, ...fix } = c;
+    const { exploit, ...fix } = CANNED[finding.kind];
+    const lines = countLines(fix.diff);
     const sim = (s: string) => `Simulated (mock fixer, nothing was run): ${s}`;
     return {
       ...fix,
       summary: instructions ? { ...fix.summary, whatChanges: `${fix.summary.whatChanges} (Revised per your note: "${instructions.slice(0, 200)}".)` } : fix.summary,
-      linesChanged: countLines(fix.diff),
+      linesChanged: lines,
       author: "mock",
       checks: [
         { name: "exploit_test", status: "pass", detail: sim(`"${exploit}" works before the fix and fails after.`) },
         { name: "behavior_tests", status: "pass", detail: sim("12 recorded behaviors unchanged.") },
         { name: "preview_replay", status: "skipped", detail: sim("no preview deployment in local mode.") },
-        { name: "second_review", status: "pass", detail: sim(`diff is ${countLines(fix.diff)} lines and touches only ${fix.filesChanged.join(", ")}.`) },
+        { name: "second_review", status: "pass", detail: sim(`diff is ${lines} lines and touches only ${fix.filesChanged.join(", ")}.`) },
       ],
     };
   }

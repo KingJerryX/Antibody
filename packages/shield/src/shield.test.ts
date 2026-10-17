@@ -78,6 +78,13 @@ describe("local engine", () => {
     for (let i = 0; i < 5; i++) recordOutcome({ ...login, at: T0 + i * 1000 }, 401);
     expect((await evaluate({ ...login, at: T0 + 6000 })).action).toBe("block");
   });
+
+  it("forgets requests once they fall out of the window", async () => {
+    const hit = (at: number) => evaluate({ method: "GET", pathname: "/api/products", ip: "10.3.3.3", at });
+    for (let i = 0; i < 40; i++) await hit(T0 + i * 100);
+    expect((await hit(T0 + 4_100)).action).toBe("block");
+    expect(await hit(T0 + 4_100 + 60_001)).toMatchObject({ action: "allow", riskScore: 0.03 }); // only itself in the last minute
+  });
 });
 
 describe("chalk path", () => {
@@ -119,7 +126,7 @@ describe("createShield", () => {
   it("returns 403 on block, reports the event, and ignores static assets", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response("{}")));
     vi.stubGlobal("fetch", fetchMock);
-    const shield = createShield({ projectId: "demo", eventsUrl: "http://localhost:3000/api/events" });
+    const shield = createShield({ projectId: "demo" });
     const req = (path: string) =>
       new Request(`http://localhost:4001${path}`, { headers: { cookie: "theme=dark; session=abc123", "x-forwarded-for": "10.2.2.2" } });
 

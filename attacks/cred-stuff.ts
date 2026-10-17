@@ -1,5 +1,5 @@
 // Credential stuffing: fire wrong passwords at POST /api/login. No lockout => cheap to try forever.
-import { banner, requireVerifiedTarget } from "./_lib.ts";
+import { attackFetch, banner, requireVerifiedTarget } from "./_lib.ts";
 
 const origin = requireVerifiedTarget();
 banner("cred-stuff", origin);
@@ -14,7 +14,7 @@ let blockedAt = 0;
 let unauthorized = 0;
 
 for (const pw of guesses) {
-  const res = await fetch(`${origin}/api/login`, {
+  const res = await attackFetch(`${origin}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: "alice.patel1@example.com", password: pw }),

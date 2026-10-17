@@ -91,7 +91,7 @@ async function RecentProjects() {
   return (
     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {projects.map((p) => {
-        const last = db.scans.filter((s) => s.projectId === p.id).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+        const last = db.scans.findLast((s) => s.projectId === p.id); // scans are appended in start order
         return (
           <li key={p.id}>
             <Card className="p-4">

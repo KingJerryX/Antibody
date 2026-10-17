@@ -27,57 +27,68 @@ export interface Features {
   sessionAiCalls1m: number;
 }
 
-// Thresholds: the value at which a signal alone scores 1.0 (= block).
-export const LIMITS = {
+// Thresholds: the value at which a signal alone scores 1.0 (= block). Keep in sync with chalk/src/features.py.
+const LIMITS = {
   extraUsersRead: 5, // own profile + 5 others in 5 min
   routeRpm: 30,
   failedLogins: 5,
   loginAttempts: 10,
   aiCallsPerMin: 10,
 } as const;
-export const BLOCK_AT = 0.9;
-export const CHALLENGE_AT = 0.7;
+const BLOCK_AT = 0.9;
+const CHALLENGE_AT = 0.7;
 
 const MIN = 60_000;
+/** Longest window below; anything older is dead weight. */
+const HORIZON = 10 * MIN;
 const USER_READ = /^\/api\/(?:users|profiles|accounts)\/([^/?#]+)/;
 const LOGIN = /\/(?:api\/)?(?:login|signin|auth\/login|auth\/token)\/?$/;
 const AI = /^\/api\/chat(?:\/|$)/;
+const ID_SEGMENT = /\/(?:\d+|[0-9a-f-]{16,}|[0-9a-z]{20,})(?=\/|$)/gi;
 
-export const isLoginPath = (p: string) => LOGIN.test(p);
+const isLoginPath = (p: string) => LOGIN.test(p);
 
 /** "/api/users/42/orders" -> "/api/users/:id/orders" so one route = one rate bucket. */
-export function routeOf(pathname: string): string {
-  return pathname.replace(/\/(?:\d+|[0-9a-f-]{16,}|[0-9a-z]{20,})(?=\/|$)/gi, "/:id");
-}
+export const routeOf = (pathname: string) => pathname.replace(ID_SEGMENT, "/:id");
 
 type Entry = { at: number; v: string };
 
-// ponytail: per-process memory; keys are never globally swept (only pruned on touch),
-// so an attacker rotating spoofed IPs grows the maps. Fine for a demo; use Chalk/Redis in prod.
-class Windows {
-  private m = new Map<string, Entry[]>();
-  add(key: string, at: number, v = "") {
-    const list = this.m.get(key) ?? [];
-    list.push({ at, v });
-    this.m.set(key, list);
-  }
-  recent(key: string, windowMs: number, now: number): Entry[] {
-    const list = (this.m.get(key) ?? []).filter((e) => e.at > now - 10 * MIN);
-    if (list.length) this.m.set(key, list);
-    else this.m.delete(key);
-    return list.filter((e) => e.at > now - windowMs && e.at <= now);
-  }
-  clear() {
-    this.m.clear();
-  }
-}
-
+// ponytail: per-process memory (use Chalk/Redis across instances). Assumes each key's timestamps arrive
+// in order, which holds for Date.now() and for the increasing clocks tests and evals pass.
 // globalThis so a Next proxy bundle and route-handler bundles in one process share the same windows.
-const g = globalThis as { __antibodyWindows?: Windows };
-const w = (g.__antibodyWindows ??= new Windows());
+const g = globalThis as { __antibodyShieldWindows?: Map<string, Entry[]> };
+const windows = (g.__antibodyShieldWindows ??= new Map<string, Entry[]>());
+let lastSweep = 0;
 
 export function resetEngine() {
-  w.clear();
+  windows.clear();
+  lastSweep = 0;
+}
+
+function add(key: string, at: number, v = "") {
+  const list = windows.get(key);
+  if (list) list.push({ at, v });
+  else windows.set(key, [{ at, v }]);
+}
+
+/** Entries in the last `windowMs`. Older ones are dropped for good: each key is only ever read with one window. */
+function recent(key: string, windowMs: number, now: number): Entry[] {
+  const list = windows.get(key);
+  if (!list) return [];
+  const keep = list.findIndex((e) => e.at > now - windowMs);
+  if (keep === -1) {
+    windows.delete(key);
+    return [];
+  }
+  if (keep > 0) list.splice(0, keep);
+  return list;
+}
+
+/** Once a minute, forget actors silent for longer than every window, so rotating IPs/cookies can't grow memory forever. */
+function sweep(now: number) {
+  if (now - lastSweep < MIN) return;
+  lastSweep = now;
+  for (const [key, list] of windows) if (list[list.length - 1].at <= now - HORIZON) windows.delete(key);
 }
 
 const actorOf = (ctx: RequestContext) => (ctx.sessionId ? `s:${ctx.sessionId}` : `ip:${ctx.ip}`);
@@ -86,28 +97,29 @@ const actorOf = (ctx: RequestContext) => (ctx.sessionId ? `s:${ctx.sessionId}` :
 export function observe(ctx: RequestContext): Features {
   const now = ctx.at ?? Date.now();
   const actor = actorOf(ctx);
-  const route = routeOf(ctx.pathname);
+  const rpmKey = `rpm:${ctx.ip}:${routeOf(ctx.pathname)}`;
+  sweep(now);
 
   const userId = USER_READ.exec(ctx.pathname)?.[1];
-  if (userId) w.add(`users:${actor}`, now, userId);
-  w.add(`rpm:${ctx.ip}:${route}`, now);
-  if (isLoginPath(ctx.pathname) && ctx.method !== "GET") w.add(`login:${ctx.ip}`, now);
-  if (AI.test(ctx.pathname)) w.add(`ai:${actor}`, now);
+  if (userId) add(`users:${actor}`, now, userId);
+  add(rpmKey, now);
+  if (isLoginPath(ctx.pathname) && ctx.method !== "GET") add(`login:${ctx.ip}`, now);
+  if (AI.test(ctx.pathname)) add(`ai:${actor}`, now);
 
-  const reads = w.recent(`users:${actor}`, 5 * MIN, now);
+  const reads = recent(`users:${actor}`, 5 * MIN, now);
   return {
     sessionDistinctUsers5m: new Set(reads.map((e) => e.v)).size,
     sessionUserReadSpanS: reads.length ? Math.round((now - reads[0].at) / 1000) : 0,
-    ipRouteRpm: w.recent(`rpm:${ctx.ip}:${route}`, MIN, now).length,
-    ipFailedLogins10m: w.recent(`fail:${ctx.ip}`, 10 * MIN, now).length,
-    ipLoginAttempts10m: w.recent(`login:${ctx.ip}`, 10 * MIN, now).length,
-    sessionAiCalls1m: w.recent(`ai:${actor}`, MIN, now).length,
+    ipRouteRpm: recent(rpmKey, MIN, now).length,
+    ipFailedLogins10m: recent(`fail:${ctx.ip}`, 10 * MIN, now).length,
+    ipLoginAttempts10m: recent(`login:${ctx.ip}`, 10 * MIN, now).length,
+    sessionAiCalls1m: recent(`ai:${actor}`, MIN, now).length,
   };
 }
 
 /** Tell the engine how a request ended, so 401s on login count as failed logins. */
 export function recordOutcome(ctx: Pick<RequestContext, "pathname" | "ip" | "at">, status: number) {
-  if (status === 401 && isLoginPath(ctx.pathname)) w.add(`fail:${ctx.ip}`, ctx.at ?? Date.now());
+  if (status === 401 && isLoginPath(ctx.pathname)) add(`fail:${ctx.ip}`, ctx.at ?? Date.now());
 }
 
 const clamp = (x: number) => Math.max(0, Math.min(1, x));

@@ -60,8 +60,6 @@ const TIERS: Record<ActionKind, Tier> = {
   delete_data: "never",
 };
 
-export const tierOf = (a: ActionKind): Tier => TIERS[a];
-
 /** A text reply is weak proof of identity, so it may only trigger reversible actions. */
 export function allowedFromText(a: ActionKind): { ok: boolean; why: string } {
   switch (TIERS[a]) {
@@ -78,5 +76,3 @@ export function allowedFromText(a: ActionKind): { ok: boolean; why: string } {
 
 /** Neither a text nor anything else lets Antibody merge or destroy; merges happen in GitHub by a human. */
 export const antibodyMayExecute = (a: ActionKind) => TIERS[a] === "reversible";
-
-export const TEMP_BLOCK_TTL_MS = 24 * 60 * 60_000;

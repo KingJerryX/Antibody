@@ -31,13 +31,7 @@ export function ReportView() {
     );
   }
 
-  const host = (() => {
-    try {
-      return new URL(scan.targetUrl).host;
-    } catch {
-      return scan.targetUrl;
-    }
-  })();
+  const host = URL.parse(scan.targetUrl)?.host ?? scan.targetUrl;
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-12">
@@ -97,7 +91,7 @@ export function ReportView() {
 
 function Running({ host }: { host: string }) {
   return (
-    <Card className="mt-4 flex items-center gap-5 p-8" >
+    <Card className="mt-4 flex items-center gap-5 p-8">
       <span className="relative flex h-12 w-12 shrink-0 items-center justify-center" aria-hidden="true">
         <span className="absolute inset-0 animate-ping rounded-full bg-mint/20" />
         <Icon name="search" className="h-7 w-7 text-mint" />

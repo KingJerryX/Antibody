@@ -1,6 +1,6 @@
 // Decides per integration whether we talk to the real service or a mock, from env alone.
 
-export type IntegrationMode = "live" | "mock" | "disabled";
+type IntegrationMode = "live" | "mock" | "disabled";
 export type IntegrationName = "photon" | "chalk" | "factory" | "github" | "voice";
 
 const has = (...keys: string[]) => keys.every((k) => (process.env[k] ?? "").trim() !== "");
@@ -39,9 +39,6 @@ export function logIntegrations(): void {
     process.exit(1);
   }
 }
-
-/** First 4 chars + "…" for anything secret-looking we might otherwise print. */
-export const redact = (v: string) => (v.length <= 4 ? "…" : `${v.slice(0, 4)}…`);
 
 /** Phone/email handles are personal data: show only the tail in logs and activity. */
 export const maskHandle = (h: string) => (h.length <= 4 ? h : `…${h.slice(-4)}`);

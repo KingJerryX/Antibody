@@ -12,14 +12,22 @@ import { createHash } from "node:crypto";
 import type { ShieldDecision } from "@antibody/core";
 import { observe, recordOutcome as recordCtxOutcome, resetEngine, routeOf, score, type Features, type RequestContext } from "./engine.ts";
 
-export { LIMITS, BLOCK_AT, CHALLENGE_AT, observe, score, routeOf, type Features, type RequestContext } from "./engine.ts";
+export type { RequestContext } from "./engine.ts";
 
 const CHALK_TIMEOUT_MS = 150;
+/** After a Chalk failure, skip Chalk for this long (circuit breaker) so requests don't each wait the timeout. */
+const CHALK_COOLDOWN_MS = 30_000;
+/** At most one activity event per actor per this long, so a flood doesn't flood the feed too. */
+const REPORT_EVERY_MS = 10_000;
+
+const STATIC_ASSET = /\.[a-z0-9]{2,5}$/i;
+const SENSITIVE_PAGE = /^\/(?:login|logout|signin|signup|auth|admin)(?:\/|$)/;
+const SESSION_COOKIE = /^[^=]*(?:session|sid|token|auth)[^=]*=/i;
 
 /** Only API and auth routes by default; never static assets. */
-export function isSensitive(pathname: string): boolean {
-  if (pathname.startsWith("/_next/") || /\.[a-z0-9]{2,5}$/i.test(pathname)) return false;
-  return pathname.startsWith("/api/") || /^\/(?:login|logout|signin|signup|auth|admin)(?:\/|$)/.test(pathname);
+function isSensitive(pathname: string): boolean {
+  if (pathname.startsWith("/_next/") || STATIC_ASSET.test(pathname)) return false;
+  return pathname.startsWith("/api/") || SENSITIVE_PAGE.test(pathname);
 }
 
 // ponytail: trusts x-forwarded-for as-is (spoofable). Fine behind one trusted proxy / for local demos.
@@ -31,15 +39,16 @@ function ipOf(req: Request): string {
 function sessionOf(req: Request): string | undefined {
   // A Supabase-style public anon key (sent with an `apikey` header) is shared by every visitor: not a session.
   const auth = req.headers.has("apikey") ? null : req.headers.get("authorization");
-  const cookie = (req.headers.get("cookie") ?? "")
-    .split(";")
+  const cookie = req.headers
+    .get("cookie")
+    ?.split(";")
     .map((c) => c.trim())
-    .find((c) => /^[^=]*(?:session|sid|token|auth)[^=]*=/i.test(c));
+    .find((c) => SESSION_COOKIE.test(c));
   const raw = auth ?? cookie;
   return raw ? createHash("sha256").update(raw).digest("hex").slice(0, 12) : undefined;
 }
 
-export function contextFrom(req: Request): RequestContext {
+function contextFrom(req: Request): RequestContext {
   return { method: req.method, pathname: new URL(req.url).pathname, ip: ipOf(req), sessionId: sessionOf(req) };
 }
 
@@ -52,6 +61,7 @@ export function recordOutcome(req: Request | RequestContext, status: number) {
 
 type ChalkQuery = (inputs: Record<string, string | number>, outputs: string[]) => Promise<Record<string, { value: unknown }>>;
 let chalk: Promise<ChalkQuery> | undefined;
+let chalkDownUntil = 0;
 let loggedMode = false;
 
 const hasChalkCreds = () => Boolean(process.env.CHALK_CLIENT_ID && process.env.CHALK_CLIENT_SECRET);
@@ -95,7 +105,8 @@ function chalkInputs(ctx: RequestContext, f: Features): Record<string, string | 
 async function askChalk(ctx: RequestContext, f: Features): Promise<ShieldDecision> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Throws on timeout, network error or a bad shape; evaluate() falls back to the local engine.
+    // One budget for client construction + query. Throws on timeout, network error or a bad shape;
+    // evaluate() falls back to the local engine.
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`timed out after ${CHALK_TIMEOUT_MS}ms`)), CHALK_TIMEOUT_MS);
     });
@@ -113,9 +124,7 @@ async function askChalk(ctx: RequestContext, f: Features): Promise<ShieldDecisio
   }
 }
 
-/** After a Chalk failure, skip Chalk for this long (circuit breaker) so requests don't each wait the timeout. */
-const CHALK_COOLDOWN_MS = 30_000;
-let chalkDownUntil = 0;
+const withNote = (d: ShieldDecision, note: string): ShieldDecision => ({ ...d, reasons: [...d.reasons, note] });
 
 /**
  * Record the request and decide. Uses Chalk when CHALK_CLIENT_ID/SECRET are set, else the local engine.
@@ -124,11 +133,12 @@ let chalkDownUntil = 0;
  */
 export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
   const f = observe(ctx);
+  const useChalk = hasChalkCreds();
   if (!loggedMode) {
     loggedMode = true;
-    console.log(hasChalkCreds() ? "[shield] Chalk mode (150ms timeout, local engine fallback)" : "[shield] MOCK: no Chalk creds, using local feature engine");
+    console.log(useChalk ? "[shield] Chalk mode (150ms timeout, local engine fallback)" : "[shield] MOCK: no Chalk creds, using local feature engine");
   }
-  if (!hasChalkCreds()) return score(f, ctx);
+  if (!useChalk) return score(f, ctx);
   if (Date.now() < chalkDownUntil) return withNote(score(f, ctx), "Chalk paused after a failure; local engine decided");
   try {
     return await askChalk(ctx, f);
@@ -140,29 +150,13 @@ export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
   }
 }
 
-const withNote = (d: ShieldDecision, note: string): ShieldDecision => ({ ...d, reasons: [...d.reasons, note] });
-
 // --- Next.js-style handler ---------------------------------------------------------------------
 
-const lastReport = new Map<string, number>();
-
-function report(eventsUrl: string, body: object, key: string) {
-  // ponytail: at most one activity event per actor per 10s, so a flood doesn't flood the feed too.
-  const now = Date.now();
-  if (now - (lastReport.get(key) ?? 0) < 10_000) return;
-  lastReport.set(key, now);
-  fetch(eventsUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
-}
-
-export interface ShieldOptions {
-  projectId: string;
-  protect?: (pathname: string) => boolean;
-  eventsUrl?: string;
-}
-
-export function createShield(opts: ShieldOptions) {
+export function createShield(opts: { projectId: string; protect?: (pathname: string) => boolean }) {
   const protect = opts.protect ?? isSensitive;
-  const eventsUrl = opts.eventsUrl ?? `${process.env.ANTIBODY_WEB_URL ?? "http://localhost:3000"}/api/events`;
+  const eventsUrl = `${process.env.ANTIBODY_WEB_URL ?? "http://localhost:3000"}/api/events`;
+  const lastReport = new Map<string, number>();
+  let lastSweep = 0;
 
   return async (request: Request): Promise<Response | undefined> => {
     const ctx = contextFrom(request);
@@ -170,29 +164,35 @@ export function createShield(opts: ShieldOptions) {
     const d = await evaluate(ctx);
     if (d.action === "allow") return undefined;
 
-    const status = d.action === "block" ? 403 : 429;
-    report(
-      eventsUrl,
-      {
+    const actor = ctx.sessionId ?? ctx.ip;
+    const now = Date.now();
+    if (now - (lastReport.get(actor) ?? 0) >= REPORT_EVERY_MS) {
+      if (now - lastSweep >= REPORT_EVERY_MS) {
+        lastSweep = now; // forget expired actors, at most once per period, so the map can't grow forever
+        for (const [k, t] of lastReport) if (now - t >= REPORT_EVERY_MS) lastReport.delete(k);
+      }
+      lastReport.set(actor, now);
+      const event = {
         projectId: opts.projectId,
         type: "block",
         title: `${d.action === "block" ? "Blocked" : "Challenged"} ${ctx.method} ${ctx.pathname}`,
         detail: `${d.reasons.join("; ")} (risk ${d.riskScore}, source ${d.source})`,
         channel: "web",
-      },
-      ctx.sessionId ?? ctx.ip,
-    );
+      };
+      fetch(eventsUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) }).catch(() => {});
+    }
+
+    const block = d.action === "block";
     return Response.json(
-      { error: d.action === "block" ? "Blocked by Antibody shield" : "Slow down", reasons: d.reasons, riskScore: d.riskScore },
-      { status, headers: { "x-antibody-shield": `${d.action}; source=${d.source}`, ...(status === 429 ? { "retry-after": "30" } : {}) } },
+      { error: block ? "Blocked by Antibody shield" : "Slow down", reasons: d.reasons, riskScore: d.riskScore },
+      { status: block ? 403 : 429, headers: { "x-antibody-shield": `${d.action}; source=${d.source}`, ...(block ? {} : { "retry-after": "30" }) } },
     );
   };
 }
 
-/** Test helper: forget all windows, the cached Chalk client and report throttling. */
+/** Test helper: forget all windows and the cached Chalk client. */
 export function resetShield() {
   resetEngine();
   chalk = undefined;
   chalkDownUntil = 0;
-  lastReport.clear();
 }

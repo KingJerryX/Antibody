@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ActivityEvent, FixProposal, Project, ProjectMemory, ScanReport } from "./types.ts";
 
@@ -16,30 +16,24 @@ export interface Db {
 const empty = (): Db => ({ projects: [], scans: [], fixes: [], activity: [], memory: [] });
 
 /** Repo root = nearest ancestor of cwd whose package.json declares workspaces, so every app shares one data dir.
- *  (Not AGENTS.md: Next 16 writes one into each app folder.) */
-function isRoot(dir: string): boolean {
-  try {
-    return "workspaces" in JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  } catch {
-    return false;
-  }
-}
-
+ *  (Not AGENTS.md: Next 16 writes one into each app folder.) Found once per process. */
+let root: string | undefined;
 function repoRoot(): string {
-  let dir = process.cwd();
-  while (!isRoot(dir)) {
+  if (root) return root;
+  for (let dir = process.cwd(); ; ) {
+    try {
+      if ("workspaces" in JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))) return (root = dir);
+    } catch {
+      /* no package.json here */
+    }
     const parent = dirname(dir);
-    if (parent === dir) return process.cwd();
+    if (parent === dir) return (root = process.cwd());
     dir = parent;
   }
-  return dir;
 }
 
-function dbPath(): string {
-  const dir = resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data");
-  mkdirSync(dir, { recursive: true });
-  return join(dir, "db.json");
-}
+// ANTIBODY_DATA_DIR is read on every call: tests set it after this module has loaded.
+const dbPath = () => join(resolve(repoRoot(), process.env.ANTIBODY_DATA_DIR ?? "data"), "db.json");
 
 export function readDb(): Db {
   try {
@@ -54,6 +48,7 @@ export function updateDb<T>(fn: (db: Db) => T): T {
   const db = readDb();
   const result = fn(db);
   const path = dbPath();
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(`${path}.tmp`, JSON.stringify(db, null, 2));
   renameSync(`${path}.tmp`, path);
   return result;

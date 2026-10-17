@@ -1,6 +1,6 @@
 // iMessage via Photon 2.0 beta (@photon-ai/api 0.5.0), or a mock that only writes to the activity feed.
 import { Photon } from "@photon-ai/api";
-import { logActivity, newId } from "@antibody/core";
+import { logActivity } from "@antibody/core";
 import { isLive, maskHandle } from "./integrations.ts";
 
 export interface Inbound {
@@ -12,7 +12,6 @@ export type InboundHandler = (msg: Inbound) => Promise<void>;
 export interface SendOpts {
   projectId: string;
   refId?: string;
-  idempotencyKey?: string;
 }
 
 export interface Messenger {
@@ -75,7 +74,7 @@ export class PhotonMessenger implements Messenger {
   private platform = process.env.PHOTON_PLATFORM || "imessage";
   // ponytail: in-memory routes + seen ids; rebuilt on boot from the last 24h of messages. Persist if we run >1 process.
   private routes = new Map<string, Route>();
-  private seen = new Set<string>();
+  private seen = new Map<string, number>(); // message id -> createdAt ms; pruned as the poll window moves
   private timer?: NodeJS.Timeout;
   private startedAt = new Date();
 
@@ -89,7 +88,7 @@ export class PhotonMessenger implements Messenger {
     }
     await this.photon.projects.sendMessage({
       path: { id: this.projectId },
-      headers: { "idempotency-key": opts.idempotencyKey ?? newId("antibody-send") },
+      headers: { "idempotency-key": crypto.randomUUID() },
       body: {
         spaceId: route.spaceId,
         senderId: route.senderId,
@@ -118,7 +117,7 @@ export class PhotonMessenger implements Messenger {
           for (const raw of page.items) {
             const m = raw as unknown as PhotonMsg;
             if (this.seen.has(m.id)) continue;
-            this.seen.add(m.id);
+            this.seen.set(m.id, Date.parse(m.createdAt));
             const from = m.sentBy?.handle;
             if (m.status !== "received" || m.sentBy?.kind !== "human" || !from || !m.space?.id || !m.receivedBy?.id) continue;
             if (this.platform === "imessage" && m.space.kind !== "direct") continue;
@@ -132,6 +131,9 @@ export class PhotonMessenger implements Messenger {
         } while (pageToken);
         // Move the window only after paging finishes (a pageToken needs the same query). Inclusive bound; `seen` dedupes.
         since = newest;
+        // Only messages at or after `since` can come back, so older ids can be forgotten (keeps `seen` bounded).
+        const cutoff = Date.parse(since);
+        for (const [id, at] of this.seen) if (at < cutoff) this.seen.delete(id);
       } catch (err) {
         console.error("[photon] poll failed:", err instanceof Error ? err.message : err);
       } finally {

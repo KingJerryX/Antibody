@@ -1,5 +1,5 @@
 // Rapid scraping: hammer the unprotected admin endpoint + homepage as fast as possible.
-import { banner, requireVerifiedTarget, timed } from "./_lib.ts";
+import { attackFetch, banner, requireVerifiedTarget, timed } from "./_lib.ts";
 
 const origin = requireVerifiedTarget();
 banner("scrape", origin);
@@ -11,7 +11,7 @@ let adminLeak = "";
 
 const { ms } = await timed(async () => {
   for (let i = 1; i <= N; i++) {
-    const res = await fetch(`${origin}/api/admin/stats`);
+    const res = await attackFetch(`${origin}/api/admin/stats`);
     if (res.status === 403 || res.status === 429) {
       blockedAt = i;
       break;

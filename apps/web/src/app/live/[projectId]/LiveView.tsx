@@ -83,7 +83,7 @@ export function LiveView({ startCode }: { startCode: string }) {
             </p>
           ) : (
             <ol className="space-y-2">
-              {[...events].reverse().slice(0, 60).map((e) => (
+              {events.slice(-60).reverse().map((e) => (
                 <FeedItem key={e.id} event={e} />
               ))}
             </ol>

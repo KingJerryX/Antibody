@@ -1,15 +1,14 @@
 // Orchestrator: plain node:http on :3001. Routes are the contract in AGENTS.md / the web app's proxy.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { logActivity, newId, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
+import { logActivity, memoryFor, newId, readDb, updateDb, type FixProposal, type Severity } from "@antibody/core";
 import { integrations, logIntegrations, maskHandle } from "./integrations.ts";
 import { createMessenger, MockMessenger } from "./messenger.ts";
-import { canAct, handleText, memoryFor, ownerOf, projectFor } from "./conversation.ts";
+import { canAct, handleText, ownerOf, projectFor } from "./conversation.ts";
 import { createFixer, DroidFixer } from "./fixer.ts";
 import { deliveryFor } from "./policy.ts";
 import { placeCall } from "./voice.ts";
 import { handleGithubWebhook } from "./github.ts";
 
-const PORT = Number(process.env.ORCHESTRATOR_PORT ?? 3001);
 const messenger = createMessenger();
 const fixer = createFixer();
 
@@ -26,15 +25,14 @@ messenger.start(async ({ from, text }) => {
     clearTimeout(pendingCalls.get(projectId));
     pendingCalls.delete(projectId);
   }
-  const reply = await handleText(projectId, from, body);
-  await messenger.send(from, reply, { projectId });
+  await messenger.send(from, handleText(projectId, from, body), { projectId });
 });
 
 // ---------- notify (interrupt budget) ----------
 async function notify(projectId: string, severity: Severity, text: string, active = false, refId?: string) {
-  const memory = memoryFor(readDb(), projectId);
-  const delivery = deliveryFor({ severity, active }, new Date(), memory.preferences.quietHours);
-  const to = ownerOf(projectId);
+  const db = readDb();
+  const delivery = deliveryFor({ severity, active }, new Date(), memoryFor(db, projectId).preferences.quietHours);
+  const to = ownerOf(projectId, db);
   if (delivery.route !== "text_now") {
     // ponytail: digests and quiet-hours holds are only logged; no scheduler sends them yet.
     console.log(`[notify] ${projectId} ${severity}: queued for ${delivery.route}`);
@@ -47,7 +45,7 @@ async function notify(projectId: string, severity: Severity, text: string, activ
   await messenger.send(to, text, { projectId, refId });
   if (delivery.callAfterMs) {
     clearTimeout(pendingCalls.get(projectId));
-    const ms = Number(process.env.ANTIBODY_CALL_AFTER_MS ?? delivery.callAfterMs); // override only to demo faster
+    const ms = Number(process.env.ANTIBODY_CALL_AFTER_MS || delivery.callAfterMs); // override only to demo faster
     pendingCalls.set(
       projectId,
       setTimeout(() => {
@@ -72,8 +70,8 @@ function findFinding(findingId: string) {
 }
 
 /** Drafts in the background; resolves once the proposal is ready (or failed back to "rejected" with a note). */
-async function draftFix(fixId: string, instructions?: string): Promise<FixProposal> {
-  const fix = readDb().fixes.find((f) => f.id === fixId)!;
+async function draftFix(fix: FixProposal, instructions?: string): Promise<FixProposal> {
+  const fixId = fix.id;
   const finding = findFinding(fix.findingId)!;
   try {
     const draft = await fixer.draft(finding, instructions);
@@ -108,7 +106,7 @@ async function startFix(findingId: string): Promise<FixProposal | undefined> {
   };
   updateDb((db) => db.fixes.push(fix));
   logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Drafting a fix: ${finding.title}`, channel: "web", refId: fix.id });
-  const done = draftFix(fix.id);
+  const done = draftFix(fix);
   // Mock is instant, so return the ready fix; Droid takes minutes, so return "drafting" and let the web poll GET /api/fixes/[id].
   return fix.author === "mock" ? done : fix;
 }
@@ -184,10 +182,10 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     if (!instructions) return send(res, 400, { error: "need instructions" });
     if (fix.status !== "ready" && fix.status !== "rejected") return send(res, 409, { error: `fix is ${fix.status}` });
     updateDb((db) => memoryFor(db, fix.projectId).decisions.push({ at: new Date().toISOString(), by: "web", text: `Asked to revise ${id}: ${instructions.slice(0, 200)}` }));
-    saveFix(id, { status: "drafting" });
+    const drafting = saveFix(id, { status: "drafting" });
     logActivity({ projectId: fix.projectId, type: "fix_drafting", title: `Revising fix ${id}`, detail: instructions.slice(0, 200), channel: "web", refId: id });
-    const done = draftFix(id, instructions);
-    return send(res, 200, fix.author === "mock" ? await done : readDb().fixes.find((f) => f.id === id));
+    const done = draftFix(fix, instructions);
+    return send(res, 200, fix.author === "mock" ? await done : drafting);
   }
 
   // Mock mode's stand-in for a phone: lets the web /live page or curl "text" the agent.
@@ -219,8 +217,7 @@ const server = createServer((req, res) => {
 logIntegrations();
 // Loopback only: /notify and /fixes are unauthenticated and can text the owner through the Photon line.
 // ponytail: no auth token; put a shared-secret header on these routes before binding to anything but 127.0.0.1.
-const HOST = process.env.ORCHESTRATOR_HOST ?? "127.0.0.1";
-server.listen(PORT, HOST, () => console.log(`[orchestrator] listening on http://${HOST}:${PORT} (imessage: ${messenger.mode})`));
+server.listen(3001, "127.0.0.1", () => console.log(`[orchestrator] listening on http://127.0.0.1:3001 (imessage: ${messenger.mode})`));
 
 const shutdown = () => {
   messenger.stop();

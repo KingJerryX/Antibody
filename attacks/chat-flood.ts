@@ -1,5 +1,5 @@
 // No rate limit: spam POST /api/chat and watch the "AI spend" counter climb with no ceiling.
-import { banner, requireVerifiedTarget } from "./_lib.ts";
+import { attackFetch, banner, requireVerifiedTarget } from "./_lib.ts";
 
 const origin = requireVerifiedTarget();
 banner("chat-flood", origin);
@@ -10,7 +10,7 @@ let blockedAt = 0;
 let lastSpend = 0;
 
 for (let i = 1; i <= N; i++) {
-  const res = await fetch(`${origin}/api/chat`, {
+  const res = await attackFetch(`${origin}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt: `spam ${i}` }),

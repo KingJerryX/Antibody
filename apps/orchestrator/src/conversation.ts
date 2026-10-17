@@ -1,5 +1,5 @@
-// Rule-based handling of inbound texts. No LLM key tonight; see `llm` below for the hook.
-import { logActivity, memoryFor, readDb, updateDb, type Db, type FixProposal, type ProjectMemory } from "@antibody/core";
+// Rule-based handling of inbound texts (keyword matching, no LLM).
+import { logActivity, memoryFor, readDb, updateDb, type Db } from "@antibody/core";
 import { allowedFromText, type ActionKind } from "./policy.ts";
 import { isLive, maskHandle } from "./integrations.ts";
 
@@ -34,8 +34,6 @@ export function parseIntent(raw: string): Intent {
   if (/\bwatch\b/.test(t)) return { kind: "action", action: "watch" };
   return { kind: "unknown" };
 }
-
-export { memoryFor };
 
 /**
  * Which project an inbound text is about: the project that owns a fix id named in the text, else the project whose
@@ -76,20 +74,13 @@ const defaultOwner = () => process.env.PHOTON_TEST_SENDER?.trim() || (isLive("ph
 const NOT_LINKED =
   "Hi! This number isn't linked to a project yet. Open your project's Live page in Antibody and text the START code shown there (like START ABC234).";
 
-const decide = (projectId: string, by: string, text: string) =>
-  updateDb((db) => memoryFor(db, projectId).decisions.push({ at: new Date().toISOString(), by, text }));
-
-/**
- * LLM hook: set this to answer free-form texts (with ProjectMemory as context). Return undefined to fall back.
- * Whatever it returns is only a reply; actions still go through parseIntent + policy.
- */
-export let llm: ((ctx: { projectId: string; from: string; text: string; memory: ProjectMemory }) => Promise<string | undefined>) | undefined;
-export const setLlm = (fn: typeof llm) => (llm = fn);
+/** Records a decision in ProjectMemory. Call inside updateDb so one text costs one write. */
+const decide = (db: Db, projectId: string, by: string, text: string) =>
+  memoryFor(db, projectId).decisions.push({ at: new Date().toISOString(), by, text });
 
 /** Returns the reply text. Records decisions in ProjectMemory and activity for the /live page. */
-export async function handleText(projectId: string, from: string, text: string): Promise<string> {
+export function handleText(projectId: string, from: string, text: string): string {
   const intent = parseIntent(text);
-  const who = from;
 
   if (intent.kind === "start") {
     // START <code> proves the sender can see the project's Live page (localhost only): they join it, as owner if
@@ -108,14 +99,16 @@ export async function handleText(projectId: string, from: string, text: string):
         const joined = m.teammates.some((t) => t.handle === from);
         if (!joined && !m.teammates.length) m.teammates.push({ name: "Owner", handle: from, role: "owner" });
         else if (!joined && intent.code) m.teammates.push({ name: "Teammate", handle: from, role: "teammate" });
-        if (m.teammates.some((t) => t.handle === from)) out.push(id);
+        if (m.teammates.some((t) => t.handle === from)) {
+          out.push(id);
+          decide(db, id, from, "Opened the iMessage thread (START)");
+        }
       }
       return out;
     });
     if (!claimed.length) {
       return intent.code ? `I don't recognize the code ${intent.code}. Check the START code on your project's Live page.` : NOT_LINKED;
     }
-    for (const id of claimed) decide(id, who, "Opened the iMessage thread (START)");
     return "You're connected to Antibody. I'll stay quiet unless something matters. Text STATUS any time, UNDO to reverse my last action.";
   }
 
@@ -125,13 +118,13 @@ export async function handleText(projectId: string, from: string, text: string):
   if (intent.kind === "status") {
     const db = readDb();
     const scan = db.scans.filter((s) => s.projectId === projectId).at(-1);
-    const fixes = db.fixes.filter((f) => f.projectId === projectId);
-    const ready = fixes.filter((f) => f.status === "ready");
+    const ready = db.fixes.filter((f) => f.projectId === projectId && f.status === "ready");
+    const latest = ready.at(-1);
     const blocks = db.activity.filter((a) => a.projectId === projectId && a.type === "block" && Date.now() - Date.parse(a.at) < 86_400_000).length;
     const open = scan?.findings.length ?? 0;
     return [
       scan ? `Last scan: ${open} issue${open === 1 ? "" : "s"} on ${scan.targetUrl}.` : "No scans yet.",
-      `${ready.length} fix${ready.length === 1 ? "" : "es"} ready to review${ready[0] ? ` (latest: ${ready.at(-1)!.id})` : ""}.`,
+      `${ready.length} fix${ready.length === 1 ? "" : "es"} ready to review${latest ? ` (latest: ${latest.id})` : ""}.`,
       `${blocks} request${blocks === 1 ? "" : "s"} blocked in the last 24h.`,
     ].join(" ");
   }
@@ -141,14 +134,14 @@ export async function handleText(projectId: string, from: string, text: string):
       const ready = readDb().fixes.filter((f) => f.projectId === projectId && f.status === "ready").at(-1);
       return ready ? `Which fix? Reply YES ${ready.id} to approve it (merging still happens in GitHub).` : "There's nothing waiting for approval right now.";
     }
-    let fix: FixProposal | undefined;
-    updateDb((db) => {
-      fix = db.fixes.find((f) => f.id === intent.fixId && f.projectId === projectId);
-      if (fix?.status === "ready") fix.status = "approved";
+    const fix = updateDb((db) => {
+      const f = db.fixes.find((x) => x.id === intent.fixId && x.projectId === projectId);
+      if (f?.status === "ready") f.status = "approved";
+      if (f?.status === "approved") decide(db, projectId, from, `Approved ${f.id} by text (merge still requires GitHub)`);
+      return f;
     });
     if (!fix) return `I can't find ${intent.fixId}. Text STATUS to see what's ready.`;
     if (fix.status !== "approved") return `${fix.id} is ${fix.status}, so there's nothing to approve.`;
-    decide(projectId, who, `Approved ${fix.id} by text (merge still requires GitHub)`);
     logActivity({ projectId, type: "approval", title: `Fix ${fix.id} approved by text`, detail: "Merging happens in GitHub, not over text.", channel: "imessage", refId: fix.id });
     return `Marked ${fix.id} approved. Merging happens in GitHub: ${fix.prUrl ?? "the PR link is on the review page"}. A text alone can't merge code.`;
   }
@@ -163,26 +156,23 @@ export async function handleText(projectId: string, from: string, text: string):
       temporary_block: ["Asked for a temporary block (expires in 24h)", "Blocked temporarily; it expires on its own in 24h. Reply UNDO if that was you."],
       watch: ["Chose to watch, no action", "OK, just watching. I'll text you if it gets worse."],
     };
-    let [decision, reply] = replies[intent.action];
-    if (intent.action === "undo") {
-      // If the last thing decided was a text approval, UNDO puts that fix back to "ready".
-      const undone = updateDb((db) => {
+    const [decision, reply] = updateDb((db) => {
+      let out = replies[intent.action];
+      if (intent.action === "undo") {
+        // If the last thing decided was a text approval, UNDO puts that fix back to "ready".
         const last = memoryFor(db, projectId).decisions.at(-1)?.text.match(/^Approved (fix_\w+) by text/)?.[1];
         const fix = db.fixes.find((f) => f.id === last && f.status === "approved");
-        if (fix) fix.status = "ready";
-        return fix?.id;
-      });
-      if (undone) [decision, reply] = [`Undid approval of ${undone}`, `Undone: ${undone} is back to waiting for review.`];
-    }
-    decide(projectId, who, decision);
+        if (fix) {
+          fix.status = "ready";
+          out = [`Undid approval of ${fix.id}`, `Undone: ${fix.id} is back to waiting for review.`];
+        }
+      }
+      decide(db, projectId, from, out[0]);
+      return out;
+    });
     logActivity({ projectId, type: intent.action === "undo" ? "undo" : "approval", title: decision, channel: "imessage" });
     return reply;
   }
 
-  if (llm) {
-    const memory = memoryFor(readDb(), projectId);
-    const answer = await llm({ projectId, from, text, memory }).catch(() => undefined);
-    if (answer) return answer;
-  }
   return "Got it. I understand STATUS, YES fix_id, UNDO, RATE LIMIT, BLOCK, or WATCH. Code changes are approved in GitHub.";
 }

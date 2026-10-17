@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /** Read ANTIBODY_VERIFIED_DOMAINS from env, falling back to the repo-root .env.local. */
-export function verifiedDomains(): string[] {
+function verifiedDomains(): string[] {
   let raw = process.env.ANTIBODY_VERIFIED_DOMAINS;
   if (!raw) {
     let dir = process.cwd();
@@ -30,7 +30,7 @@ export function verifiedDomains(): string[] {
 }
 
 /** Parse --target from argv. */
-export function targetFromArgv(): string {
+function targetFromArgv(): string {
   const i = process.argv.indexOf("--target");
   const t = i >= 0 ? process.argv[i + 1] : undefined;
   if (!t) {
@@ -62,6 +62,19 @@ export function requireVerifiedTarget(): string {
     process.exit(1);
   }
   return url.origin;
+}
+
+// A fixed attacker IP for every attack request. The shield keys rate limits on x-forwarded-for;
+// without it attack traffic falls back to "local" and shares the presenter's browser bucket, which
+// can 429 their own tabs on :4001. This pins attacks to an attacker so the demo browser stays clean.
+const ATTACKER_IP = "203.0.113.66";
+
+/** fetch with the attacker IP header merged in (caller headers win if they set the same key). */
+export function attackFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    headers: { "x-forwarded-for": ATTACKER_IP, ...(init.headers as Record<string, string> | undefined) },
+  });
 }
 
 export async function timed<T>(fn: () => Promise<T>): Promise<{ ms: number; value: T }> {

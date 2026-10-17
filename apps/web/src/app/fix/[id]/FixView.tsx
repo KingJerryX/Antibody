@@ -3,7 +3,7 @@
 import type { FixCheck, FixCheckName, FixProposal } from "@antibody/core";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { Card, Icon } from "@/components/ui";
+import { Card, Icon, type IconName } from "@/components/ui";
 import { usePoll } from "@/components/usePoll";
 import { parseDiff } from "@/lib/diff";
 
@@ -13,7 +13,14 @@ const CHECK_LABEL: Record<FixCheckName, { title: string; sub: string }> = {
   preview_replay: { title: "Real traffic replayed on a preview", sub: "Preview replay" },
   second_review: { title: "A second reviewer agrees", sub: "Second review" },
 };
-const CHECK_ORDER: FixCheckName[] = ["exploit_test", "behavior_tests", "preview_replay", "second_review"];
+const CHECK_ORDER = Object.keys(CHECK_LABEL) as FixCheckName[];
+
+const CHECK_LOOK: Record<FixCheck["status"], { icon: IconName; cls: string; text: string }> = {
+  pass: { icon: "check", cls: "text-mint bg-mint/10", text: "Passed" },
+  fail: { icon: "x", cls: "text-red-300 bg-red-500/15", text: "Failed" },
+  pending: { icon: "clock", cls: "text-slate-300 bg-white/5 animate-pulse", text: "Running" },
+  skipped: { icon: "arrow", cls: "text-slate-400 bg-white/5", text: "Skipped" },
+};
 
 const STATUS_LABEL: Record<FixProposal["status"], string> = {
   drafting: "Drafting",
@@ -90,10 +97,13 @@ export function FixView() {
         </aside>
       </div>
 
-      <Actions fix={fix} onUpdate={(f) => {
+      <Actions
+        fix={fix}
+        onUpdate={(f) => {
           if (f) setData(f);
           refresh(); // restarts polling in case a revision put the fix back into drafting
-        }} />
+        }}
+      />
 
       <section aria-labelledby="diff" className="mt-10">
         <h2 id="diff" className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-400">The code change</h2>
@@ -103,7 +113,7 @@ export function FixView() {
   );
 }
 
-function Explain({ title, body, icon, tone }: { title: string; body: string; icon: "alert" | "wrench" | "message"; tone: string }) {
+function Explain({ title, body, icon, tone }: { title: string; body: string; icon: IconName; tone: string }) {
   return (
     <Card className="flex gap-4 p-6">
       <Icon name={icon} className={`mt-1 h-5 w-5 shrink-0 ${tone}`} />
@@ -117,12 +127,7 @@ function Explain({ title, body, icon, tone }: { title: string; body: string; ico
 
 function CheckRow({ check }: { check: FixCheck }) {
   const label = CHECK_LABEL[check.name];
-  const look = {
-    pass: { icon: "check" as const, cls: "text-mint bg-mint/10", text: "Passed" },
-    fail: { icon: "x" as const, cls: "text-red-300 bg-red-500/15", text: "Failed" },
-    pending: { icon: "clock" as const, cls: "text-slate-300 bg-white/5 animate-pulse", text: "Running" },
-    skipped: { icon: "arrow" as const, cls: "text-slate-400 bg-white/5", text: "Skipped" },
-  }[check.status];
+  const look = CHECK_LOOK[check.status];
   return (
     <li className="flex gap-3">
       <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${look.cls}`}>

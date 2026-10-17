@@ -6,7 +6,8 @@ if (!process.env.FACTORY_API_KEY) {
   process.exit(1);
 }
 
-const result = await run("Reply with exactly the word: ready");
+// Windows: the SDK can't spawn npm's droid.cmd shim, so DROID_EXEC_PATH points at droid.exe.
+const result = await run("Reply with exactly the word: ready", { execPath: process.env.DROID_EXEC_PATH || undefined });
 if (!result.success) {
   console.error(`Droid run failed: ${result.subtype}`);
   process.exit(1);

@@ -1,23 +1,19 @@
 import { after } from "next/server";
 import { logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
 import { scanUrl } from "@antibody/scanner";
-import { json, verifiedDomains } from "@/lib/server";
+import { verifiedDomains } from "@/lib/server";
 
 function parseTarget(raw: unknown): URL | null {
   if (typeof raw !== "string" || !raw.trim() || raw.length > 2048) return null;
   const s = raw.trim();
-  try {
-    const u = new URL(/^https?:\/\//i.test(s) ? s : `http://${s}`);
-    return u.protocol === "http:" || u.protocol === "https:" ? u : null;
-  } catch {
-    return null;
-  }
+  const u = URL.parse(/^https?:\/\//i.test(s) ? s : `http://${s}`);
+  return u?.protocol === "http:" || u?.protocol === "https:" ? u : null;
 }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const target = parseTarget(body?.url);
-  if (!target) return json({ error: "Enter a valid http(s) URL, like http://localhost:4000" }, 400);
+  if (!target) return Response.json({ error: "Enter a valid http(s) URL, like http://localhost:4000" }, { status: 400 });
 
   const domains = verifiedDomains();
   const now = new Date().toISOString();
@@ -67,5 +63,5 @@ export async function POST(request: Request) {
     }
   });
 
-  return json({ scanId, projectId: project.id }, 202);
+  return Response.json({ scanId, projectId: project.id }, { status: 202 });
 }
