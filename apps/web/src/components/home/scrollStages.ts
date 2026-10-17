@@ -23,6 +23,23 @@ function clamp01(e: number) {
   return Math.max(0, Math.min(1, e));
 }
 
+function bitmapSize(canvas: HTMLCanvasElement) {
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, rect.width);
+  const h = Math.max(1, rect.height);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  return { w, h, dpr, bw: Math.max(1, Math.round(w * dpr)), bh: Math.max(1, Math.round(h * dpr)) };
+}
+
+// Assigning canvas.width clears the bitmap and can fire another resize.
+// A one-pixel wobble at some device ratios would wipe the frame forever.
+function applyBitmap(canvas: HTMLCanvasElement, bw: number, bh: number) {
+  if (Math.abs(canvas.width - bw) <= 2 && Math.abs(canvas.height - bh) <= 2 && canvas.width > 1) return false;
+  canvas.width = bw;
+  canvas.height = bh;
+  return true;
+}
+
 function mount(
   canvas: HTMLCanvasElement,
   reduce: boolean,
@@ -34,47 +51,68 @@ function mount(
   let raf = 0;
   let running = false;
   let active = false;
+  let lost = false;
   let last = 0;
   let space: Space = { w: 1, h: 1, dpr: 1, sx: 1, sy: 1 };
 
   const measure = () => {
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(1, rect.width);
-    const h = Math.max(1, rect.height);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    space = { w, h, dpr, sx: w / W, sy: h / H };
+    if (lost || ctx.isContextLost()) return false;
+    const next = bitmapSize(canvas);
+    space = { w: next.w, h: next.h, dpr: next.dpr, sx: next.w / W, sy: next.h / H };
+    return applyBitmap(canvas, next.bw, next.bh);
+  };
+
+  const paint = (dt: number) => {
+    if (lost || ctx.isContextLost()) return;
+    ctx.setTransform(space.dpr * space.sx, 0, 0, space.dpr * space.sy, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    draw(ctx, reduce ? 0 : dt, space);
   };
 
   const frame = (now: number) => {
     const dt = last ? Math.max(0, Math.min(now - last, 64)) : 16;
     last = now;
-    ctx.setTransform(space.dpr * space.sx, 0, 0, space.dpr * space.sy, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    draw(ctx, reduce ? 0 : dt, space);
-    if (running && active && !reduce) raf = requestAnimationFrame(frame);
+    try {
+      paint(dt);
+    } catch {
+      // A lost context throws. Leave running false so the next start can try again.
+      running = false;
+      return;
+    }
+    if (running && active && !reduce && !lost) raf = requestAnimationFrame(frame);
     else running = false;
   };
 
   const kick = () => {
-    if (running) return;
+    if (running || reduce || lost || ctx.isContextLost()) return;
     running = true;
     last = 0;
     raf = requestAnimationFrame(frame);
   };
 
+  const onLost = (e: Event) => {
+    e.preventDefault();
+    lost = true;
+    running = false;
+    cancelAnimationFrame(raf);
+  };
+  const onRestored = () => {
+    lost = false;
+    measure();
+    try { paint(0); } catch { return; }
+    if (active) kick();
+  };
+  canvas.addEventListener("contextlost", onLost);
+  canvas.addEventListener("contextrestored", onRestored);
+
   measure();
-  ctx.setTransform(space.dpr * space.sx, 0, 0, space.dpr * space.sy, 0, 0);
-  draw(ctx, 0, space);
+  try { paint(0); } catch { /* contextrestored paints again */ }
 
   const resized = new ResizeObserver(() => {
-    measure();
-    ctx.setTransform(space.dpr * space.sx, 0, 0, space.dpr * space.sy, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    draw(ctx, 0, space);
+    if (!measure()) return;
+    try { paint(0); } catch { /* the live frame paints the next size */ }
   });
-  resized.observe(canvas);
+  resized.observe(canvas.parentElement ?? canvas);
 
   return {
     wave() {},
@@ -82,10 +120,15 @@ function mount(
       running = false;
       cancelAnimationFrame(raf);
       resized.disconnect();
+      canvas.removeEventListener("contextlost", onLost);
+      canvas.removeEventListener("contextrestored", onRestored);
     },
     setActive(on) {
       active = on && !reduce;
-      if (active) kick();
+      if (!active) return;
+      measure();
+      try { paint(0); } catch { /* contextrestored paints again */ }
+      kick();
     },
   };
 }

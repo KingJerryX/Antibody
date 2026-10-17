@@ -201,15 +201,26 @@ export function startSlabs(canvas: HTMLCanvasElement, reduce: boolean) {
   let raf = 0;
   let running = false;
   let active = false;
+  let lost = false;
 
   const measure = () => {
+    if (lost || ctx.isContextLost()) return false;
     const rect = canvas.getBoundingClientRect();
-    cssW = Math.max(1, rect.width);
-    cssH = Math.max(1, rect.height);
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(cssW * dpr);
-    canvas.height = Math.round(cssH * dpr);
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    const next = Math.min(2, window.devicePixelRatio || 1);
+    const bw = Math.max(1, Math.round(w * next));
+    const bh = Math.max(1, Math.round(h * next));
+    // Same guard as the shield stage: rewriting the bitmap on a 1px wobble
+    // clears the drawing and retriggers resize until the picture sticks blank.
+    if (Math.abs(canvas.width - bw) <= 2 && Math.abs(canvas.height - bh) <= 2 && canvas.width > 1) return false;
+    cssW = w;
+    cssH = h;
+    dpr = next;
+    canvas.width = bw;
+    canvas.height = bh;
     field = build(cssW, cssH);
+    return true;
   };
 
   const paint = (now: number) => {
@@ -288,26 +299,50 @@ export function startSlabs(canvas: HTMLCanvasElement, reduce: boolean) {
   };
 
   const frame = (now: number) => {
-    paint(now);
+    try {
+      if (lost || ctx.isContextLost()) {
+        running = false;
+        return;
+      }
+      paint(now);
+    } catch {
+      running = false;
+      return;
+    }
     const keep = active || filling;
-    if (running && keep && !reduce) raf = requestAnimationFrame(frame);
+    if (running && keep && !reduce && !lost) raf = requestAnimationFrame(frame);
     else running = false;
   };
 
   const kick = () => {
-    if (running || reduce) return;
+    if (running || reduce || lost || ctx.isContextLost()) return;
     running = true;
     raf = requestAnimationFrame(frame);
   };
 
+  const onLost = (e: Event) => {
+    e.preventDefault();
+    lost = true;
+    running = false;
+    cancelAnimationFrame(raf);
+  };
+  const onRestored = () => {
+    lost = false;
+    measure();
+    try { paint(performance.now()); } catch { return; }
+    if (active || filling) kick();
+  };
+  canvas.addEventListener("contextlost", onLost);
+  canvas.addEventListener("contextrestored", onRestored);
+
   measure();
-  paint(0);
+  try { paint(0); } catch { /* contextrestored paints again */ }
 
   const resized = new ResizeObserver(() => {
-    measure();
-    paint(performance.now());
+    if (!measure()) return;
+    try { paint(performance.now()); } catch { /* the live frame paints the next size */ }
   });
-  resized.observe(canvas);
+  resized.observe(canvas.parentElement ?? canvas);
 
   return {
     wave() {
@@ -317,16 +352,22 @@ export function startSlabs(canvas: HTMLCanvasElement, reduce: boolean) {
       sweepAt = -1;
       started = performance.now();
       active = true;
+      measure();
       kick();
     },
     stop() {
       running = false;
       cancelAnimationFrame(raf);
       resized.disconnect();
+      canvas.removeEventListener("contextlost", onLost);
+      canvas.removeEventListener("contextrestored", onRestored);
     },
     setActive(on: boolean) {
       active = on && !reduce;
-      if (active) kick();
+      if (!active) return;
+      measure();
+      try { paint(performance.now()); } catch { /* contextrestored paints again */ }
+      kick();
     },
   };
 }

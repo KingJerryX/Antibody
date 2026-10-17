@@ -243,7 +243,7 @@
   
 .ab .well {
     position: relative; width: min(620px, 100%); margin-inline: auto;
-    aspect-ratio: 699 / 540; background: #10120f; container-type: inline-size;
+    aspect-ratio: 699 / 540; background: #10120f;
     border: 1px solid rgba(255,255,255,0.035); border-radius: 7px; overflow: hidden;
   }
   

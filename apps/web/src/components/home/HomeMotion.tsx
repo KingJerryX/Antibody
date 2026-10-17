@@ -291,7 +291,8 @@ export function HomeMotion() {
 
     const seen = new IntersectionObserver((entries) => {
       entries.forEach((en) => {
-        const demo = en.target as HTMLElement;
+        const node = en.target as HTMLElement;
+        const demo = node.closest<HTMLElement>(".demo") ?? node;
         if (en.isIntersecting) arm(demo, reduce, stops);
         scanRings.get(demo)?.setActive(en.isIntersecting);
         stages.get(demo)?.setActive(en.isIntersecting);
@@ -307,6 +308,7 @@ export function HomeMotion() {
             : startCluster(canvas, reduce);
         stages.set(demo, stage);
         stops.push(stage.stop);
+        cleanups.push(() => stages.delete(demo));
       }
       const cmd = demo.querySelector(".cmd");
       const onClick = () => {
@@ -317,7 +319,9 @@ export function HomeMotion() {
       cmd?.addEventListener("click", onClick);
       cleanups.push(() => cmd?.removeEventListener("click", onClick));
       if (reduce) arm(demo, reduce, stops);
-      seen.observe(demo);
+      // Watch the picture, not the whole row. On a phone the row is taller than
+      // the viewport, so the canvas can be on screen while the row is under 42%.
+      seen.observe(demo.querySelector(".well") ?? demo);
     });
     cleanups.push(() => seen.disconnect());
 
