@@ -215,9 +215,14 @@ const server = createServer((req, res) => {
 });
 
 logIntegrations();
-// Loopback only: /notify and /fixes are unauthenticated and can text the owner through the Photon line.
-// ponytail: no auth token; put a shared-secret header on these routes before binding to anything but 127.0.0.1.
-server.listen(3001, "127.0.0.1", () => console.log(`[orchestrator] listening on http://127.0.0.1:3001 (imessage: ${messenger.mode})`));
+// Local dev stays on loopback: /notify and /fixes are unauthenticated and can text the owner.
+// When PORT is set (Vercel), listen on all interfaces so the internal service binding can reach this process.
+// The port passed to listen is local-only; Vercel routes the binding to its own internal port.
+// ponytail: no auth token; put a shared-secret header on these routes before any public rewrite targets this service.
+const port = Number(process.env.PORT ?? 3001);
+const onListen = () => console.log(`[orchestrator] listening on http://${process.env.PORT ? "0.0.0.0" : "127.0.0.1"}:${port} (imessage: ${messenger.mode})`);
+if (process.env.PORT) server.listen(port, onListen);
+else server.listen(port, "127.0.0.1", onListen);
 
 const shutdown = () => {
   messenger.stop();

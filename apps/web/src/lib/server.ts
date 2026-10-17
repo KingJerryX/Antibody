@@ -3,7 +3,17 @@ import { connection } from "next/server";
 import { resolve } from "node:path";
 import { readDb, repoRoot } from "@antibody/core";
 
-export const ORCHESTRATOR_URL = process.env.ANTIBODY_ORCHESTRATOR_URL || "http://localhost:3001";
+/**
+ * Orchestrator base URL, with a trailing slash.
+ * Vercel injects ANTIBODY_ORCHESTRATOR_URL from the web → orchestrator binding.
+ * That value exists only at function runtime, so read it per request (a module-level
+ * capture would freeze the localhost fallback at build time). Bracket access keeps
+ * Next from inlining the missing build-time value.
+ */
+export function orchestratorUrl(): string {
+  const raw = process.env["ANTIBODY_ORCHESTRATOR_URL"] || "http://localhost:3001";
+  return raw.endsWith("/") ? raw : `${raw}/`;
+}
 
 export function verifiedDomains(): string[] {
   return (process.env.ANTIBODY_VERIFIED_DOMAINS ?? "")
@@ -32,8 +42,9 @@ export async function readStore() {
 
 /** Forward a request to the orchestrator; a clear 503 if it isn't running. */
 export async function proxyToOrchestrator(path: string, body: unknown): Promise<Response> {
+  const base = orchestratorUrl();
   try {
-    const res = await fetch(`${ORCHESTRATOR_URL}${path}`, {
+    const res = await fetch(new URL(path.replace(/^\//, ""), base), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -42,7 +53,7 @@ export async function proxyToOrchestrator(path: string, body: unknown): Promise<
     return new Response(await res.text(), { status: res.status, headers: { "content-type": res.headers.get("content-type") ?? "application/json" } });
   } catch {
     return Response.json(
-      { error: `The Antibody orchestrator isn't reachable at ${ORCHESTRATOR_URL}. Start it with "npm run dev:orchestrator" and try again.` },
+      { error: `The Antibody orchestrator isn't reachable at ${base}. Start it with "npm run dev:orchestrator" and try again.` },
       { status: 503 },
     );
   }
