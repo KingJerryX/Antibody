@@ -99,7 +99,7 @@ function present(f: Finding) {
 
 export function ReportView() {
   const { id } = useParams<{ id: string }>();
-  const { data, error } = usePoll<ScanReport>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
+  const { data, error } = usePoll<ScanReport & { canFix?: boolean }>(`/api/scan/${id}`, 1500, (s) => s.status === "running");
   const health = useHealth();
   // Filled by the scan form on Vercel, where the next request may not see the file the scan wrote.
   const cached = useSessionValue<ScanReport>(`antibody-scan:${id}`);
@@ -139,7 +139,7 @@ export function ReportView() {
         ) : scan.status === "error" ? (
           <Failed scan={scan} />
         ) : (
-          <Done scan={scan} findings={findings} offline={health?.orchestrator === "down"} />
+          <Done scan={scan} findings={findings} offline={health?.orchestrator === "down"} canFix={data?.canFix === true} />
         )}
       </div>
     </div>
@@ -169,7 +169,7 @@ function Failed({ scan }: { scan: ScanReport }) {
   );
 }
 
-function Done({ scan, findings, offline }: { scan: ScanReport; findings: Finding[]; offline: boolean }) {
+function Done({ scan, findings, offline, canFix }: { scan: ScanReport; findings: Finding[]; offline: boolean; canFix: boolean }) {
   const s = scoreOf(findings);
   const tone = s >= 85 ? "" : s >= 55 ? "warn" : "bad";
   return (
@@ -217,14 +217,14 @@ function Done({ scan, findings, offline }: { scan: ScanReport; findings: Finding
         <h1 id="scan-summary">{headline(findings)}</h1>
         <p className="lede">{lede(findings)}</p>
         {findings.map((f) => (
-          <FindingBlock key={f.id} finding={f} offline={offline} hideObserved={findings.length === 1 && f.plainEnglish === lede(findings)} />
+          <FindingBlock key={f.id} finding={f} offline={offline} canFix={canFix} hideObserved={findings.length === 1 && f.plainEnglish === lede(findings)} />
         ))}
       </section>
     </div>
   );
 }
 
-function FindingBlock({ finding: f, offline, hideObserved }: { finding: Finding; offline: boolean; hideObserved: boolean }) {
+function FindingBlock({ finding: f, offline, canFix, hideObserved }: { finding: Finding; offline: boolean; canFix: boolean; hideObserved: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -284,15 +284,22 @@ function FindingBlock({ finding: f, offline, hideObserved }: { finding: Finding;
             {showEvidence ? "Hide evidence" : "View evidence"}
           </button>
         )}
-        <button
-          type="button"
-          className={offline ? "btn btn-offline" : "btn btn-lime"}
-          onClick={fix}
-          disabled={busy || offline}
-          title={offline ? 'Start it with "npm run dev:orchestrator"' : undefined}
-        >
-          {busy ? "Starting…" : offline ? "Automatic fix offline" : "Fix it"}
-        </button>
+        {canFix ? (
+          <button
+            type="button"
+            className={offline ? "btn btn-offline" : "btn btn-lime"}
+            onClick={fix}
+            disabled={busy || offline}
+            title={offline ? 'Start it with "npm run dev:orchestrator"' : undefined}
+          >
+            {busy ? "Starting…" : offline ? "Automatic fix offline" : "Fix it"}
+          </button>
+        ) : (
+          // No connected repo means no code to patch, so there is no fix to offer yet.
+          <Link className="btn btn-lime" href={`/connect/${f.projectId}`} title="Antibody only fixes code it can see">
+            Connect GitHub to fix
+          </Link>
+        )}
       </div>
       {showEvidence && <pre className="evidence">{f.evidence}</pre>}
       {error && (

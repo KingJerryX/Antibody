@@ -1,7 +1,7 @@
 // Server-only helpers (imports node fs via @antibody/core). Never import from a client component.
 import { connection } from "next/server";
 import { resolve } from "node:path";
-import { readDb, repoRoot } from "@antibody/core";
+import { isGithubConnected, readDb, repoRoot, type Project } from "@antibody/core";
 
 /**
  * Orchestrator base URL, with a trailing slash.
@@ -35,6 +35,15 @@ export function repoDirFor(host: string): string | undefined {
     const [h, dir] = pair.split("=").map((s) => s.trim());
     if (h?.toLowerCase() === host.toLowerCase() && dir) return resolve(repoRoot(), dir);
   }
+}
+
+/**
+ * Whether Antibody has this project's code to fix: its connected GitHub repo, or (local dev) a folder from
+ * ANTIBODY_REPOS. Without either there is nothing to patch, so the site must not offer a fix.
+ */
+export function canFixProject(project: Project | undefined): boolean {
+  if (!project) return false;
+  return isGithubConnected(project) || Boolean(repoDirFor(URL.parse(project.url)?.host ?? ""));
 }
 
 /** connection() keeps store reads (a file or Supabase) out of build-time prerendering. */

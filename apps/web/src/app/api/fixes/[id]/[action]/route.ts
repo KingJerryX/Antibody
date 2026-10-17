@@ -13,7 +13,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/fixes/[id]/
   }
   const instructions = decided === "revise" ? String(b.instructions).trim().slice(0, 4000) : undefined;
 
-  if (process.env.VERCEL) {
+  // Fixes drafted by the orchestrator are approved there too (it opens the pull request).
+  if (process.env.VERCEL && !process.env["ANTIBODY_ORCHESTRATOR_URL"]) {
     const result = await actOnFix(id, decided, instructions, b?.fix);
     if ("error" in result) return Response.json({ error: result.error }, { status: result.status });
     return Response.json(result.fix);
