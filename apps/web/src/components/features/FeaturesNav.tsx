@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { GROUPS } from "./data";
 
 const LINKS = [
@@ -12,7 +12,18 @@ const LINKS = [
 ];
 
 export function FeaturesNav() {
-  const path = usePathname();
+  return (
+    <Suspense fallback={<Nav path="" />}>
+      <NavWithPath />
+    </Suspense>
+  );
+}
+
+function NavWithPath() {
+  return <Nav path={usePathname()} />;
+}
+
+function Nav({ path }: { path: string }) {
   const [hash, setHash] = useState("");
   const onChecks = path === "/features/checks" || path.startsWith("/features/checks/");
 

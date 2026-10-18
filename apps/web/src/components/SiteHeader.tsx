@@ -2,10 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Mark } from "./Mark";
 
 export function SiteHeader() {
+  return (
+    <Suspense fallback={<Header path="" />}>
+      <HeaderWithPath />
+    </Suspense>
+  );
+}
+
+function HeaderWithPath() {
+  return <Header path={usePathname()} />;
+}
+
+function Header({ path }: { path: string }) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   // Who's signed in. Null until /api/auth/me answers.
@@ -23,7 +35,6 @@ export function SiteHeader() {
   }, []);
 
   const close = () => setOpen(false);
-  const path = usePathname();
   const tab = (href: string, label: string) => {
     const on = path === href || (href !== "/" && path.startsWith(`${href}/`));
     return (
