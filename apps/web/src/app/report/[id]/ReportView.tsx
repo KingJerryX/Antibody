@@ -212,6 +212,7 @@ const MARK: Record<ScanCheck["status"], string> = { pass: "✓", fail: "✗", no
 function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck[]; findings: Finding[]; projectId: string; canFix: boolean }) {
   const passed = checks.filter((c) => c.status === "pass");
   const failed = checks.filter((c) => c.status === "fail");
+  const ran = passed.length + failed.length;
   const waiting = checks.filter((c) => c.status === "not_run").length;
   // Say exactly what each waiting tier needs: signing in alone doesn't give repo access.
   const missing = (tier: CheckTier) => checks.some((c) => c.tier === tier && c.status === "not_run");
@@ -224,7 +225,7 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
       <p className="kicker">Checks passed</p>
       <p className={`figure ${tone}`}>
         {passed.length}
-        <span className="figure-of">/{checks.length}</span>
+        {ran > 0 && <span className="figure-of">/{ran}</span>}
       </p>
       <p className="status-line">
         {failed.length ? `${failed.length} failed.` : "None failed."}{" "}
@@ -240,12 +241,12 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
           const rows = checks.filter((c) => c.tier === tier);
           if (!rows.length) return null;
           const passedInTier = rows.filter((c) => c.status === "pass").length;
-          const ran = rows.some((c) => c.status !== "not_run");
+          const ranInTier = rows.filter((c) => c.status !== "not_run").length;
           return (
             <details key={tier} open={tier === "passive" || rows.some((c) => c.status === "fail")}>
               <summary>
                 <span>{label}</span>
-                <b>{ran ? `${passedInTier}/${rows.length}` : "not run"}</b>
+                <b>{ranInTier ? `${passedInTier}/${ranInTier}` : "not run"}</b>
               </summary>
               <ul className="score-list">
                 {rows.map((c) => (
