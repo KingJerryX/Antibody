@@ -75,7 +75,6 @@ interface PhotonMsg {
 interface Route {
   spaceId: string;
   senderId: string;
-  lastMessageId: string;
 }
 
 const SEEN_ROW = "photon-seen-v2";
@@ -108,10 +107,11 @@ export class PhotonMessenger implements Messenger {
     await this.photon.projects.sendMessage({
       path: { id: this.projectId },
       headers: { "idempotency-key": crypto.randomUUID() },
+      // A plain message in the same conversation, not a threaded reply: shared iMessage lines reject
+      // parentMessageId ("Replies are not supported for this Space").
       body: {
         spaceId: route.spaceId,
         senderId: route.senderId,
-        parentMessageId: route.lastMessageId,
         content: { type: "text", format: "plain", text },
       },
     });
@@ -156,7 +156,7 @@ export class PhotonMessenger implements Messenger {
       const from = m.sentBy?.handle;
       // Rebuild the reply route even for a text we already answered, so a restart can still send.
       if (m.status === "received" && from && m.space?.id && m.receivedBy?.id) {
-        this.routes.set(from, { spaceId: m.space.id, senderId: m.receivedBy.id, lastMessageId: m.id });
+        this.routes.set(from, { spaceId: m.space.id, senderId: m.receivedBy.id });
       }
       if (this.seen.has(m.id)) continue;
       const sentKind = m.sentBy?.kind ?? "";
@@ -180,8 +180,14 @@ export class PhotonMessenger implements Messenger {
       if (text && recent && from) {
         // Several START texts while we were asleep should get one reply, not one per bubble.
         if (!(isStart && repliedStart.has(from))) {
-          await this.inbound!({ from, text });
-          handled++;
+          // A failure (e.g. Photon rejecting the reply) is logged, and the text still counts as handled below,
+          // so one bad send can't make every 2s poll re-handle the same text forever.
+          try {
+            await this.inbound!({ from, text });
+            handled++;
+          } catch (err) {
+            console.error(`[photon] handling a text from ${maskHandle(from)} failed:`, err instanceof Error ? err.message.slice(0, 300) : err);
+          }
           if (isStart) repliedStart.add(from);
         }
         this.seen.add(m.id);
