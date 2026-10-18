@@ -13,6 +13,8 @@ export type FindingKind =
   | "sql_injection"
   | "xss"
   | "missing_security_headers"
+  | "dnssec_disabled"
+  | "dmarc_missing"
   | "bug"
   | "data_leak"
   | "optimization";

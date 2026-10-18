@@ -53,6 +53,20 @@ const SECURE_HEADERS = {
   "strict-transport-security": "max-age=63072000",
 };
 
+/** Cloudflare DoH answers that pass DNSSEC (AD) and DMARC (p=reject). */
+function dnsPass(host: string): Route[] {
+  const q = (type: string, name = host) => (u: string) => {
+    if (!u.startsWith("https://cloudflare-dns.com/dns-query")) return false;
+    const params = new URL(u).searchParams;
+    return params.get("type") === type && params.get("name") === name;
+  };
+  return [
+    { test: q("A"), json: { Status: 0, AD: true, Answer: [{ type: 1, data: "1.2.3.4" }] } },
+    { test: q("DS"), json: { Status: 0, AD: true, Answer: [{ type: 43, data: "2371 13 2 AB" }] } },
+    { test: q("TXT", `_dmarc.${host}`), json: { Status: 0, AD: true, Answer: [{ type: 16, data: '"v=DMARC1; p=reject"' }] } },
+  ];
+}
+
 describe("secret detectors (unit)", () => {
   it("finds each key family and redacts it", () => {
     const hits = scanSecrets(`${OPENAI} ${ANTHROPIC} ${STRIPE} ${AWS} ${SERVICE}`);
@@ -148,8 +162,9 @@ describe("scanUrl active gating", () => {
       verifiedDomains: ["localhost:4000"],
       fetchImpl: impl,
     });
-    // only the page itself was fetched — no RLS, route, or rate-limit probes
-    expect(calls.every((c) => c.url === "https://notmine.com/")).toBe(true);
+    // The page, plus DNS lookups at a public resolver. Nothing aimed at the site's API.
+    const resolver = (u: string) => u.startsWith("https://cloudflare-dns.com/") || u.startsWith("https://dns.google/");
+    expect(calls.filter((c) => !resolver(c.url)).every((c) => c.url === "https://notmine.com/")).toBe(true);
     expect(calls.some((c) => c.url.includes("/rest/v1/"))).toBe(false);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
     expect(r.skipped?.some((s) => s.startsWith("Live checks did not run"))).toBe(true);
@@ -301,6 +316,7 @@ describe("scanUrl active gating", () => {
     const { impl, calls } = mockFetch([
       { test: (u) => u === "https://mine.example/", body: "<html></html>", headers: SECURE_HEADERS },
       { test: (u) => u === "https://mine.example/api/admin", json: { users: 3 } },
+      ...dnsPass("mine.example"),
     ]);
     const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], owned: true, fetchImpl: impl });
     expect(calls.some((c) => c.url === "https://mine.example/api/admin")).toBe(true);
@@ -315,6 +331,37 @@ describe("scanUrl active gating", () => {
     const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
     expect(r.skipped?.some((s) => s.includes("connect the Vercel project"))).toBe(true);
+  });
+
+  it("reports missing DNSSEC and DMARC from the public resolver", async () => {
+    const { impl } = mockFetch([
+      { test: (u) => u === "https://site.com/", body: "<html></html>", headers: SECURE_HEADERS },
+      {
+        test: (u) => u.startsWith("https://cloudflare-dns.com/dns-query"),
+        json: { Status: 0, AD: false, Answer: [] },
+      },
+    ]);
+    const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    expect(r.findings.map((f) => f.kind)).toEqual(expect.arrayContaining(["dnssec_disabled", "dmarc_missing"]));
+    expect(r.passed).toContain("csp");
+    expect(r.passed).not.toContain("dnssec");
+    expect(r.passed).not.toContain("dmarc");
+  });
+
+  it("flags an open login route and leaves a rate-limited one alone", async () => {
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "http://localhost:4000/", body: "<html></html>", headers: SECURE_HEADERS },
+      { test: (u) => u === "http://localhost:4000/api/login", status: 401, body: "no" },
+      { test: (u) => u === "http://localhost:4000/api/signup", status: 429, body: "slow down" },
+    ]);
+    const r = await scanUrl("http://localhost:4000/", { projectId: "p1", verifiedDomains: ["localhost:4000"], fetchImpl: impl });
+    const login = r.findings.find((f) => f.kind === "missing_rate_limit");
+    expect(login?.title).toContain("/api/login");
+    expect(login?.severity).toBe("high");
+    expect(r.findings.filter((f) => f.kind === "missing_rate_limit")).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith("/api/login") && c.method === "POST")).toHaveLength(25);
+    expect(calls.filter((c) => c.url.endsWith("/api/signup") && c.method === "POST")).toHaveLength(1);
+    expect(r.passed).not.toContain("rate_limit");
   });
 
   it("errors cleanly on an unreachable target", async () => {

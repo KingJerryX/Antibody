@@ -11,6 +11,17 @@ it("marks live and code checks not run when the site isn't proven and no repo is
   expect(s).toMatchObject({ https: "pass", secret_scan: "pass", cookies: "pass", security_headers: "fail", supabase_rls: "not_run", cors: "not_run", code_auth: "not_run" });
 });
 
+it("treats DNS as passed on a local address and as not run when the lookup was skipped", () => {
+  const local = scanChecks({ ...base, targetUrl: "http://localhost:4000/" }, undefined);
+  expect(local.find((c) => c.id === "dnssec")).toMatchObject({ status: "pass", note: "Local or IP address, so DNS records aren't expected." });
+  expect(local.find((c) => c.id === "dmarc")?.status).toBe("pass");
+
+  const skipped = scanChecks({ ...base, skipped: ["DNSSEC check did not run. The DNS lookup failed.", "DMARC check did not run. The DNS lookup failed."] }, undefined);
+  expect(skipped.find((c) => c.id === "dnssec")?.status).toBe("not_run");
+  expect(skipped.find((c) => c.id === "dmarc")?.status).toBe("not_run");
+  expect(skipped.find((c) => c.id === "csp")?.status).toBe("fail");
+});
+
 it("reports live results once the site is proven, and code results from the audit", () => {
   const idor = { kind: "idor", detectedBy: "code_audit", location: { file: "app/api/users/[id]/route.ts", line: 4 } } as Finding;
   const report = { ...base, findings: [idor], passed: ["https", "rate_limit", "sensitive_files", "cors", "graphql", "supabase_rls"] };

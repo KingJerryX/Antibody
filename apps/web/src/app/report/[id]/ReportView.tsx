@@ -1,9 +1,9 @@
 "use client";
 
-import type { CheckTier, Finding, ScanCheck, ScanReport } from "@antibody/core";
+import type { CheckTier, Finding, ScanCheck, ScanReport, Severity } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SEVERITY_ORDER } from "@/components/ui";
 import { useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
@@ -58,7 +58,7 @@ function lede(findings: Finding[]) {
   if (findings.length === 0) return "We didn't find any of the usual holes. The live shield still watches the app.";
   if (findings.length === 1 && findings[0].kind === "missing_security_headers") return headersLede(findings[0]);
   if (findings.length === 1) return findings[0].plainEnglish;
-  return "Start with the highest severity. Each finding includes what we saw, why it matters, and a fix you can approve.";
+  return "Start with the highest severity. Pick one from the list so the rest stay in view.";
 }
 
 function statusLine(findings: Finding[], s: number, surfaceOnly: boolean) {
@@ -312,10 +312,128 @@ function Done({ scan, findings, offline, canFix }: { scan: ScanReport; findings:
         <p className="kicker">Scan summary</p>
         <h1 id="scan-summary">{headline(findings)}</h1>
         <p className="lede">{lede(findings)}</p>
-        {findings.map((f) => (
-          <FindingBlock key={f.id} finding={f} offline={offline} canFix={canFix} hideObserved={findings.length === 1 && f.plainEnglish === lede(findings)} />
-        ))}
+        {findings.length > 1 ? (
+          <IssueBoard findings={findings} offline={offline} canFix={canFix} />
+        ) : (
+          findings.map((f) => (
+            <FindingBlock key={f.id} finding={f} offline={offline} canFix={canFix} hideObserved={f.plainEnglish === lede(findings)} />
+          ))
+        )}
       </section>
+    </div>
+  );
+}
+
+/** Several findings: a short index and one open write-up, so the page does not grow with the list. */
+function IssueBoard({ findings, offline, canFix }: { findings: Finding[]; offline: boolean; canFix: boolean }) {
+  const [filter, setFilter] = useState<"all" | Severity>("all");
+  const [selectedId, setSelectedId] = useState(findings[0]?.id ?? "");
+  const listRef = useRef<HTMLUListElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef<string | null>(null);
+
+  const counts = useMemo(() => {
+    const c = { all: findings.length, critical: 0, high: 0, medium: 0, low: 0 };
+    for (const f of findings) c[f.severity] += 1;
+    return c;
+  }, [findings]);
+
+  const visible = filter === "all" ? findings : findings.filter((f) => f.severity === filter);
+  const selected = visible.find((f) => f.id === selectedId) ?? visible[0];
+  const filters = (["all", ...SEVERITY_ORDER] as const).filter((key) => key === "all" || counts[key] > 0);
+
+  useEffect(() => {
+    const list = listRef.current;
+    const el = list?.querySelector<HTMLElement>("[aria-selected='true']");
+    if (!list || !el) return;
+    const listRect = list.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    if (elRect.top < listRect.top) list.scrollTop -= listRect.top - elRect.top;
+    else if (elRect.bottom > listRect.bottom) list.scrollTop += elRect.bottom - listRect.bottom;
+  }, [selected?.id, filter]);
+
+  useEffect(() => {
+    detailRef.current?.scrollTo({ top: 0 });
+    const focusId = pendingFocus.current;
+    pendingFocus.current = null;
+    if (focusId && focusId === selected?.id) document.getElementById(`issue-opt-${focusId}`)?.focus();
+  }, [selected?.id]);
+
+  function move(to: number) {
+    const next = visible[to];
+    if (!next) return;
+    pendingFocus.current = next.id;
+    setSelectedId(next.id);
+  }
+
+  function onListKeyDown(e: React.KeyboardEvent) {
+    if (!selected) return;
+    const i = visible.findIndex((f) => f.id === selected.id);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      move(Math.min(visible.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      move(Math.max(0, i - 1));
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      move(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      move(visible.length - 1);
+    }
+  }
+
+  const place = selected ? visible.findIndex((f) => f.id === selected.id) + 1 : 0;
+
+  return (
+    <div className="issue-board">
+      {filters.length > 2 && (
+        <div className="sev-filters" role="group" aria-label="Filter issues by severity">
+          {filters.map((key) => (
+            <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
+              {key === "all" ? "All" : key}
+              <span className="count">{counts[key]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="issue-split">
+        <ul ref={listRef} className="issue-index" role="listbox" aria-label="Issues" onKeyDown={onListKeyDown}>
+          {visible.map((f, i) => {
+            const view = present(f);
+            const on = f.id === selected?.id;
+            return (
+              <li key={f.id} role="presentation">
+                <button
+                  type="button"
+                  className={f.severity}
+                  id={`issue-opt-${f.id}`}
+                  role="option"
+                  aria-selected={on}
+                  aria-posinset={i + 1}
+                  aria-setsize={visible.length}
+                  aria-label={`${f.severity}, ${view.title}`}
+                  tabIndex={on ? 0 : -1}
+                  onClick={() => setSelectedId(f.id)}
+                >
+                  <span className={`sev-pill ${f.severity}`}>{f.severity}</span>
+                  <span className="issue-name">{view.title}</span>
+                  {view.meta && <span className="issue-blurb">{view.meta}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {selected && (
+          <div ref={detailRef} className={`issue-detail ${selected.severity}`} role="region" aria-label={present(selected).title}>
+            <p className="issue-pos">
+              {place} of {visible.length}
+            </p>
+            <FindingBlock key={selected.id} finding={selected} offline={offline} canFix={canFix} hideObserved={false} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

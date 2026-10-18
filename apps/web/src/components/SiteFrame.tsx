@@ -13,6 +13,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
       <footer className="mx-auto flex w-[min(1120px,calc(100%-48px))] flex-wrap items-center justify-between gap-3 border-t border-white/10 py-7 text-[13px] text-[#6e726b]">
         <span>Antibody, HackHarvard. Active probing only runs against verified domains.</span>
         <span className="flex gap-4">
+          <Link href="/features" className="hover:text-[#e4e6e1]">Features</Link>
           <Link href="/docs" className="hover:text-[#e4e6e1]">Docs</Link>
           <Link href="/evals" className="hover:text-[#e4e6e1]">Eval scoreboard</Link>
           <Link href="/privacy" className="hover:text-[#e4e6e1]">Privacy</Link>

@@ -54,6 +54,8 @@ export function inspectSurface(input: {
   if (!issues.some((i) => i.kind === "missing_security_headers" && headerGap.test(i.evidence))) {
     passed.push("security_headers");
   }
+  const cspGap = issues.some((i) => i.title === "No Content Security Policy" || i.title === "Content Security Policy is not enforced");
+  if (!cspGap) passed.push("csp");
   if (https) passed.push("https");
   if (https && !issues.some((i) => i.title === "HTTPS page loads insecure resources")) passed.push("mixed_content");
   if (!issues.some((i) => i.title.startsWith("Cookie") || i.title.startsWith("Session cookie"))) passed.push("cookies");

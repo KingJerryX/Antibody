@@ -282,6 +282,37 @@ const CANNED: Record<FindingKind, Canned> = {
 +  return Response.json({ error: "Something went wrong" }, { status: 500 });
 `,
   },
+  dnssec_disabled: {
+    exploit: "dig +dnssec the domain",
+    confidence: "low",
+    filesChanged: ["DNS"],
+    summary: {
+      whatWasWrong: "The domain's DNS answers are not signed, so someone on the network can forge them.",
+      whatChanges: "Turn DNSSEC on at the registrar and publish the DS record it gives you.",
+      whatUsersNotice: "Nothing, unless a resolver was already rejecting the name.",
+    },
+    diff: `--- /dev/null
++++ b/DNS
+@@ -0,0 +1,2 @@
++; Enable DNSSEC at the registrar so the parent zone publishes a DS record.
++; Confirm with: dig +dnssec example.com DS
+`,
+  },
+  dmarc_missing: {
+    exploit: "send mail from a fake address at this domain",
+    confidence: "low",
+    filesChanged: ["DNS"],
+    summary: {
+      whatWasWrong: "Mail servers are not told to reject messages that fake this domain.",
+      whatChanges: "Publish a DMARC TXT record that quarantines or rejects failures.",
+      whatUsersNotice: "Forged mail starts landing in spam, then bouncing, as the policy tightens.",
+    },
+    diff: `--- /dev/null
++++ b/DNS
+@@ -0,0 +1,1 @@
++_dmarc.example.com. TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
+`,
+  },
   optimization: {
     exploit: "load the page and watch how much data comes back",
     confidence: "medium",

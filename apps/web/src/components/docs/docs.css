@@ -1,0 +1,203 @@
+.ab .docs-shell {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 56px;
+  width: min(1040px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 28px 0 72px;
+  align-items: start;
+}
+
+.ab .docs-nav {
+  position: sticky;
+  top: 84px;
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}
+
+.ab .docs-nav .kicker { margin: 0 0 12px 16px; }
+
+.ab .docs-nav-item > a {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 12px 8px 12px 14px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.ab .docs-nav-item > a:hover { color: var(--ink); }
+
+.ab .docs-nav-item > a b {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+
+.ab .docs-nav-item > a span {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+.ab .docs-nav small {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.ab .docs-nav-item > a[aria-current] {
+  border-left-color: var(--lime);
+  color: var(--ink);
+}
+
+.ab .docs-nav-item > a[aria-current] b { color: var(--lime); }
+
+.ab .docs-main { min-width: 0; max-width: 720px; }
+
+.ab .docs-main .crumb { margin-bottom: 28px; }
+
+.ab .docs-main h1 {
+  font-size: clamp(32px, 4vw, 42px);
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  max-width: 16em;
+}
+
+.ab .docs-lede {
+  margin-top: 14px;
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.ab .docs-anchor { scroll-margin-top: 88px; }
+
+.ab .docs-step {
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.ab .docs-step h2 {
+  font-size: clamp(28px, 3vw, 36px);
+  letter-spacing: -0.04em;
+  line-height: 1.12;
+  max-width: 16em;
+}
+
+.ab .docs-stage { margin-top: 28px; max-width: 440px; }
+
+.ab .docs-stage:hover .story-card { border-color: rgba(255, 255, 255, 0.16); }
+
+.ab .docs-callout {
+  margin-top: 28px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(127, 238, 100, 0.28);
+  background: rgba(127, 238, 100, 0.06);
+}
+
+.ab .docs-callout strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.ab .docs-callout p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 62ch;
+}
+
+.ab .docs-callout a { color: var(--lime); }
+
+.ab .docs-next {
+  margin-top: 28px;
+  color: var(--faint);
+  font-size: 14px;
+}
+
+.ab .docs-next a { color: var(--lime); }
+
+.ab .docs-close {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 8px;
+  padding: 28px 0 8px;
+  border-top: 1px solid var(--line);
+}
+
+.ab .docs-close h2 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.ab .docs-close p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@media (max-width: 800px) {
+  .ab .docs-shell {
+    grid-template-columns: 1fr;
+    gap: 0;
+    width: min(1040px, calc(100% - 32px));
+    padding-top: 8px;
+  }
+
+  .ab .docs-nav {
+    position: sticky;
+    top: 57px;
+    z-index: 30;
+    flex-direction: row;
+    gap: 0;
+    margin: 0 -16px;
+    padding: 0 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .ab .docs-nav::-webkit-scrollbar { display: none; }
+
+  .ab .docs-nav .kicker,
+  .ab .docs-nav-item > a b,
+  .ab .docs-nav-item > a small { display: none; }
+
+  .ab .docs-nav-item { flex: 0 0 auto; }
+
+  .ab .docs-nav-item > a {
+    grid-template-columns: 1fr;
+    gap: 0;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    padding: 10px 12px 8px;
+    white-space: nowrap;
+  }
+
+  .ab .docs-nav-item > a[aria-current] {
+    border-left-color: transparent;
+    border-bottom-color: var(--lime);
+  }
+
+  .ab .docs-anchor { scroll-margin-top: 128px; }
+
+  .ab .docs-main { padding-top: 22px; }
+
+  .ab .docs-close { flex-direction: column; align-items: flex-start; }
+}

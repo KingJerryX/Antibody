@@ -1,6 +1,7 @@
 // The whole check suite as rows (passed / failed / not run), built from a finished report. The report page shows
 // these instead of a score, so a scan that skipped the important checks can't look like a clean bill of health.
 import type { CheckTier, Finding, FindingKind, ScanCheck, ScanReport } from "@antibody/core";
+import { dnsApplies } from "./dns.ts";
 import type { ReviewResult } from "./repo-review.ts";
 
 type Row = [id: string, label: string];
@@ -10,6 +11,9 @@ const PASSIVE: Row[] = [
   ["https", "Served over HTTPS"],
   ["secret_scan", "No secret keys in the page or its scripts"],
   ["security_headers", "Browser protection headers are set"],
+  ["csp", "Content Security Policy is enforced"],
+  ["dnssec", "DNSSEC signs this domain"],
+  ["dmarc", "DMARC rejects forged email"],
   ["mixed_content", "No insecure resources on a secure page"],
   ["cookies", "Cookies are Secure and HttpOnly"],
   ["source_maps", "Source code isn't published"],
@@ -18,7 +22,7 @@ const PASSIVE: Row[] = [
 const LIVE: Row[] = [
   ["supabase_rls", "Supabase tables are locked (row-level security)"],
   ["unprotected_routes", "Admin and user data need a login"],
-  ["rate_limit", "AI endpoint is rate limited"],
+  ["rate_limit", "Login, signup, and AI endpoints are rate limited"],
   ["sensitive_files", "No .env, .git or credential files are served"],
   ["cors", "Other websites can't call your API as your users"],
   ["graphql", "GraphQL isn't open to anyone"],
@@ -41,11 +45,17 @@ export function scanChecks(report: ScanReport, audit: ReviewResult | undefined):
   const row = (tier: CheckTier, [id, label]: Row, status: ScanCheck["status"], note?: string): ScanCheck => ({ id, label, tier, status, ...(note && { note }) });
   const https = report.targetUrl.startsWith("https://");
   const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(report.targetUrl);
+  const hostname = URL.parse(report.targetUrl)?.hostname ?? "";
 
   const passive = PASSIVE.flatMap((r): ScanCheck[] => {
     const [id] = r;
     if (id === "mixed_content" && !https) return []; // only means something on an HTTPS page
     if (id === "https" && local) return [row("passive", r, "pass", "Local address, so HTTPS isn't expected.")];
+    if ((id === "dnssec" || id === "dmarc") && !dnsApplies(hostname)) {
+      return [row("passive", r, "pass", "Local or IP address, so DNS records aren't expected.")];
+    }
+    const dnsSkip = id === "dnssec" || id === "dmarc" ? report.skipped?.find((s) => s.startsWith(id === "dnssec" ? "DNSSEC check" : "DMARC check")) : undefined;
+    if (dnsSkip) return [row("passive", r, "not_run", dnsSkip)];
     return [row("passive", r, passed.has(id) ? "pass" : "fail")];
   });
 

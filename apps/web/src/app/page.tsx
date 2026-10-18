@@ -37,13 +37,6 @@ export default function Home() {
         </div>
       </div>
       <FeatureRow />
-      <section className="close">
-        <div className="wrap">
-          <h2>Scan a URL</h2>
-          <p className="sub" style={{ marginBottom: 16 }}>The report is the next screen. Unverified domains get a passive, read-only check.</p>
-          <ScanForm />
-        </div>
-      </section>
     </div>
   );
 }

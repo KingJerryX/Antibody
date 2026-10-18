@@ -2,12 +2,31 @@ type Dot = {
   x: number; y: number; z: number;
   nx: number; ny: number; nz: number;
   kind: "y" | "dot";
+  role: "body" | "antigen";
   size: number;
   tint: number;
   phase: number;
   scatter: [number, number, number];
   px: number; py: number; vz: number; ps: number;
   lit: number; spec: number; near: number;
+  fade: number;
+};
+
+type Pose = {
+  dist: number;
+  alpha: number;
+  scale: number;
+  slip: number;
+  flash: number;
+  bound: boolean;
+};
+
+type Visit = {
+  tipX: number; tipY: number;
+  dirX: number; dirY: number;
+  period: number;
+  delay: number;
+  shapes: Dot[][];
 };
 
 function mulberry32(seed: number) {
@@ -50,6 +69,7 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
       phase: rand() * Math.PI * 2,
       scatter: [(rand() - 0.5) * 1.7, (rand() - 0.5) * 1.7, (rand() - 0.5) * 0.9],
       px: 0, py: 0, vz: 0, ps: 1, lit: 0, spec: 0, near: 0,
+      role: "body", fade: 1,
     });
   }
   function closest(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
@@ -103,6 +123,70 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
   addBar(fork[0], fork[1], left[0], left[1]);
   addBar(fork[0], fork[1], right[0], right[1]);
 
+  function makeBlob(seed: number): Dot[] {
+    const r = mulberry32(seed);
+    const radius = 0.128;
+    const out: Dot[] = [];
+    let guard = 0;
+    while (out.length < 220 && guard++ < 2800) {
+      const u = r() * 2 - 1;
+      const v = r() * 2 - 1;
+      const z = r() * 2 - 1;
+      const e2 = u * u + v * v + z * z;
+      if (e2 > 1) continue;
+      if (e2 < 0.42 && r() < 0.8) continue;
+      const n = norm(u, v, z);
+      out.push({
+        x: u * radius, y: v * radius * 0.84, z: z * radius * 0.7,
+        nx: n[0], ny: n[1], nz: n[2],
+        kind: "dot", role: "antigen",
+        size: 1.45 + r() * 0.85,
+        tint: 0.84 + r() * 0.22,
+        phase: r() * Math.PI * 2,
+        scatter: [0, 0, 0],
+        px: 0, py: 0, vz: 0, ps: 1, lit: 0, spec: 0, near: 0, fade: 0,
+      });
+    }
+    return out;
+  }
+  function armDir(tipX: number, tipY: number) {
+    const dx = tipX - fork[0], dy = tipY - fork[1];
+    const l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l];
+  }
+  const [ldx, ldy] = armDir(left[0], left[1]);
+  const [rdx, rdy] = armDir(right[0], right[1]);
+  const visits: Visit[] = [
+    { tipX: left[0], tipY: left[1], dirX: ldx, dirY: ldy, period: 12, delay: 11.15, shapes: [makeBlob(41), makeBlob(88)] },
+    { tipX: right[0], tipY: right[1], dirX: rdx, dirY: rdy, period: 14.4, delay: 11.2, shapes: [makeBlob(63), makeBlob(109)] },
+  ];
+  const batch: Dot[] = [];
+
+  function antigenPose(cycle: number): Pose | null {
+    const arrive = 1.85, held = 4.6, leave = 0.7;
+    const dock = 0.1, far = 0.42;
+    if (cycle < arrive) {
+      const u = cycle / arrive;
+      const e = u * u * (3 - 2 * u);
+      const flash = u > 0.78 ? Math.sin(((u - 0.78) / 0.22) * Math.PI) * 0.7 : 0;
+      return { dist: far + (dock - far) * e, alpha: Math.min(1, u / 0.42), scale: 0.78 + 0.22 * e, slip: 0, flash, bound: false };
+    }
+    const dockEnd = arrive + held;
+    if (cycle < dockEnd) {
+      const u = (cycle - arrive) / held;
+      const flash = u < 0.07 ? (1 - u / 0.07) * 0.4 : 0;
+      return { dist: dock + Math.sin(u * Math.PI * 2) * 0.012, alpha: 1, scale: 1, slip: 0, flash, bound: true };
+    }
+    const leaveEnd = dockEnd + leave;
+    if (cycle < leaveEnd) {
+      const u = (cycle - dockEnd) / leave;
+      const e = u * u * (3 - 2 * u);
+      const flash = u < 0.4 ? Math.sin((u / 0.4) * Math.PI) * 0.85 : 0;
+      return { dist: dock, alpha: 1 - e, scale: 1 - e * 0.92, slip: 0, flash, bound: true };
+    }
+    return null;
+  }
+
   function layout() {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -132,15 +216,11 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     const yaw = reduce ? 0.46 : 0.5 + Math.sin(t * 0.42) * 0.2 + lookX * 0.55;
     const pitch = reduce ? -0.28 : -0.26 + Math.sin(t * 0.27) * 0.045 + lookY;
     const focal = 3.1;
-    const s = Math.min(w, h) * 0.5;
-    const cx = w * 0.5, cy = h * 0.46;
-    for (const d of dots) {
-      const wob = reduce ? 0 : Math.sin(t * 1.15 + d.phase) * 0.008;
-      const x = d.x * ease + d.scatter[0] * (1 - ease) + wob;
-      const y = d.y * ease + d.scatter[1] * (1 - ease);
-      const z = d.z * ease + d.scatter[2] * (1 - ease);
+    const s = Math.min(w, h) * 0.4;
+    const cx = w * 0.5, cy = h * 0.5;
+    function project(d: Dot, x: number, y: number, z: number, nx: number, ny: number, nz: number) {
       const p3 = turn(x, y, z, yaw, pitch);
-      const n3 = turn(d.nx, d.ny, d.nz, yaw, pitch);
+      const n3 = turn(nx, ny, nz, yaw, pitch);
       const persp = focal / (focal - p3[2]);
       d.px = cx + p3[0] * s * persp;
       d.py = cy + p3[1] * s * persp;
@@ -152,7 +232,43 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
       d.spec = Math.pow(lit, 18);
       d.near = Math.max(0, Math.min(1, (p3[2] + 0.62) / 1.15));
     }
-    dots.sort((a, b) => a.vz - b.vz);
+    for (const d of dots) {
+      const wob = reduce ? 0 : Math.sin(t * 1.15 + d.phase) * 0.008;
+      const x = d.x * ease + d.scatter[0] * (1 - ease) + wob;
+      const y = d.y * ease + d.scatter[1] * (1 - ease);
+      const z = d.z * ease + d.scatter[2] * (1 - ease);
+      project(d, x, y, z, d.nx, d.ny, d.nz);
+    }
+    const agT = reduce ? 2.4 : Math.max(0, t - 1.2);
+    batch.length = 0;
+    for (let i = 0; i < dots.length; i++) batch.push(dots[i]);
+    for (const visit of visits) {
+      const clock = agT + visit.delay;
+      const pose = reduce
+        ? { dist: 0.1, alpha: 1, scale: 1, slip: 0, flash: 0, bound: true }
+        : antigenPose(clock % visit.period);
+      if (!pose || pose.alpha < 0.02) continue;
+      const shape = visit.shapes[Math.floor(clock / visit.period) % visit.shapes.length];
+      const spin = pose.bound ? Math.sin(agT * 0.7 + visit.delay) * 0.22 : clock * 0.85;
+      const cs = Math.cos(spin), sn = Math.sin(spin);
+      const acrossX = -visit.dirY, acrossY = visit.dirX;
+      for (const d of shape) {
+        const across = d.y * cs - d.z * sn;
+        const zz = d.y * sn + d.z * cs;
+        const ny = d.ny * cs - d.nz * sn;
+        const nz = d.ny * sn + d.nz * cs;
+        const along = pose.dist + d.x * pose.scale;
+        const x = visit.tipX + visit.dirX * along + acrossX * (across * pose.scale + pose.slip);
+        const y = visit.tipY + visit.dirY * along + acrossY * (across * pose.scale + pose.slip);
+        const nx = visit.dirX * d.nx + acrossX * ny;
+        const nyw = visit.dirY * d.nx + acrossY * ny;
+        project(d, x * ease, y * ease, zz * ease, nx, nyw, nz);
+        d.fade = pose.alpha;
+        d.spec = Math.min(1.35, d.spec + pose.flash);
+        batch.push(d);
+      }
+    }
+    batch.sort((a, b) => a.vz - b.vz);
     let minX = 1e9, maxX = -1e9, maxY = -1e9;
     for (const d of dots) {
       if (d.px < minX) minX = d.px;
@@ -175,12 +291,26 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     ctx.fill();
     ctx.restore();
     ctx.lineCap = "round";
-    for (const d of dots) {
+    for (const d of batch) {
       const shade = Math.pow(d.lit, 0.8);
       const spec = d.spec;
       const tint = d.tint;
       let R: number, G: number, B: number;
-      if (shade < 0.28) {
+      if (d.role === "antigen") {
+        if (shade < 0.28) {
+          const u = shade / 0.28;
+          R = 64 + u * 50; G = 26 + u * 16; B = 16 + u * 8;
+        } else if (shade < 0.62) {
+          const u = (shade - 0.28) / 0.34;
+          R = 114 + u * 108; G = 42 + u * 74; B = 24 + u * 16;
+        } else {
+          const u = (shade - 0.62) / 0.38;
+          R = 222 + u * 33; G = 116 + u * 96; B = 40 + u * 64;
+        }
+        R = Math.min(255, R * tint + spec * 80);
+        G = Math.min(255, G * tint + spec * 64);
+        B = Math.min(255, B * tint + spec * 36);
+      } else if (shade < 0.28) {
         const u = shade / 0.28;
         R = 18 + u * 20; G = 22 + u * 20; B = 16 + u * 8;
       } else if (shade < 0.62) {
@@ -190,10 +320,12 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
         const u = (shade - 0.62) / 0.38;
         R = 114 + u * 100; G = 180 + u * 64; B = 60 + u * 90;
       }
-      R = Math.min(255, R * tint + spec * 120);
-      G = Math.min(255, G * tint + spec * 50);
-      B = Math.min(255, B * tint + spec * 64);
-      const alpha = (0.78 + d.near * 0.22) * (0.3 + 0.7 * ease);
+      if (d.role !== "antigen") {
+        R = Math.min(255, R * tint + spec * 120);
+        G = Math.min(255, G * tint + spec * 50);
+        B = Math.min(255, B * tint + spec * 64);
+      }
+      const alpha = (0.78 + d.near * 0.22) * (0.3 + 0.7 * ease) * d.fade;
       const rad = d.size * d.ps * (0.9 + d.near * 0.25);
       ctx.fillStyle = `rgb(${R | 0},${G | 0},${B | 0})`;
       ctx.strokeStyle = ctx.fillStyle;

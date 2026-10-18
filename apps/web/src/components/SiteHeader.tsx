@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Mark } from "./Mark";
 
@@ -22,6 +23,15 @@ export function SiteHeader() {
   }, []);
 
   const close = () => setOpen(false);
+  const path = usePathname();
+  const tab = (href: string, label: string) => {
+    const on = path === href || (href !== "/" && path.startsWith(`${href}/`));
+    return (
+      <Link href={href} aria-current={on ? "page" : undefined} className={`rounded-full px-3 py-2 hover:text-[#e4e6e1] ${on ? "text-[#e4e6e1]" : "text-[#9b9e96]"}`} onClick={close}>
+        {label}
+      </Link>
+    );
+  };
   const account = me?.user ? (
     <>
       <span className="inline-flex items-center gap-2 px-3 py-1 text-[#e4e6e1]">
@@ -47,8 +57,9 @@ export function SiteHeader() {
       </Link>
       <nav id="nav" aria-label="Main" className={`${open ? "flex" : "max-[860px]:hidden"} min-[861px]:absolute min-[861px]:left-1/2 min-[861px]:top-1/2 min-[861px]:flex min-[861px]:-translate-x-1/2 min-[861px]:-translate-y-1/2 max-[860px]:absolute max-[860px]:left-0 max-[860px]:right-0 max-[860px]:top-full max-[860px]:flex-col max-[860px]:border-b max-[860px]:border-white/10 max-[860px]:bg-[#101210]/95 max-[860px]:px-4 max-[860px]:py-2 items-center gap-1 text-sm`}>
         <Link href="/#scan-job" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Product</Link>
-        <Link href="/docs" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Docs</Link>
-        <Link href="/evals" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Evals</Link>
+        {tab("/features", "Features")}
+        {tab("/docs", "Docs")}
+        {tab("/evals", "Evals")}
         {me?.user ? <Link href="/sites" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Your sites</Link> : null}
         <Link href="/#scan" className="ml-2 inline-flex items-center rounded-full bg-white px-3.5 py-2 text-sm text-[#141614] hover:bg-[#f3f4f0]" onClick={close}>Scan</Link>
         <div className="mt-1 flex items-center gap-1 min-[861px]:hidden">{account}</div>

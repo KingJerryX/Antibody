@@ -1,5 +1,6 @@
 import type { Finding, FindingKind, ScanReport, Severity } from "@antibody/core";
 import { newId } from "@antibody/core";
+import { dnsApplies, inspectDns } from "./dns.ts";
 import { findSupabase, redact, scanSecrets } from "./secrets.ts";
 import { inspectSurface, probeOwned } from "./surface.ts";
 export { auditCode, auditGithubRepo, auditRepo, mergeFindings } from "./code-audit.ts";
@@ -51,6 +52,8 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const target = URL.parse(targetUrl);
   if (!target) return fail(`Not a valid URL: ${targetUrl}`);
   const { origin } = target;
+  // DNS checks talk to a public resolver, not the site, so they run alongside the page fetch.
+  const dnsTask = dnsApplies(target.hostname) ? inspectDns(target.hostname, fetchImpl) : null;
 
   // --- Passive: fetch the page, then same-origin JS bundles. Allowed on any host. ---
   let html: string;
@@ -60,6 +63,7 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
     headers = res.headers;
     html = await res.text();
   } catch (err) {
+    void dnsTask?.catch(() => undefined);
     return fail(`Could not reach ${targetUrl}: ${(err as Error).message}`);
   }
 
@@ -94,6 +98,13 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const surface = inspectSurface({ html, headers, origin, host: target.host, appCode, sourceMapUrls: exposedMaps });
   for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
   passed.push(...surface.passed);
+
+  if (dnsTask) {
+    const dns = await dnsTask;
+    for (const issue of dns.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
+    passed.push(...dns.passed);
+    skipped.push(...dns.skipped);
+  }
 
   // --- Active: a host on the allowlist, or a site its signed-in owner proved through Connect Vercel. ---
   const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
@@ -135,10 +146,10 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   findings.push(...routeFindings);
   if (!routeFindings.length) passed.push("unprotected_routes");
 
-  // Rate limit on /api/chat
-  const rate = await rateLimitCheck(probe, origin, mk);
-  if (rate) findings.push(rate);
-  else passed.push("rate_limit");
+  // Rate limit on the routes people abuse: chat spend, password guessing, signup floods.
+  const rates = await rateLimitCheck(probe, origin, mk);
+  findings.push(...rates);
+  if (!rates.length) passed.push("rate_limit");
 
   const ownedProbe = await probeOwned(probe, origin);
   for (const issue of ownedProbe.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
@@ -241,43 +252,72 @@ async function returnsJsonData(fetchImpl: typeof fetch, url: string): Promise<bo
   }
 }
 
-/** Probe /api/chat; if it exists, fire 25 quick POSTs and see whether any get rate-limited (429). */
-async function rateLimitCheck(fetchImpl: typeof fetch, origin: string, mk: MkFinding): Promise<Finding | undefined> {
-  const url = origin + "/api/chat";
-  const post = () =>
-    fetchImpl(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "hi" }),
-    });
+const RATE_ROUTES: { path: string; severity: Severity; noun: string; impact: string; fixHint: string }[] = [
+  {
+    path: "/api/chat",
+    severity: "high",
+    noun: "messages",
+    impact: "An attacker can run up your AI bill and overload the endpoint by sending thousands of requests.",
+    fixHint: "Add per-IP or per-user rate limiting in front of this route (e.g. a token bucket or a limiter like @upstash/ratelimit).",
+  },
+  {
+    path: "/api/login",
+    severity: "high",
+    noun: "login attempts",
+    impact: "Someone can guess passwords as fast as the server answers.",
+    fixHint: "Rate-limit login by IP and by account, and slow down or lock out after repeated failures.",
+  },
+  {
+    path: "/api/signup",
+    severity: "medium",
+    noun: "signups",
+    impact: "Someone can create thousands of accounts or flood the signup path.",
+    fixHint: "Rate-limit signup by IP.",
+  },
+];
 
-  let first: Response;
-  try {
-    first = await post();
-  } catch {
-    return undefined; // route not reachable
-  }
-  // 404 = doesn't exist; 3xx = redirected away (not followed), so there's no endpoint here to hammer.
-  if (first.status === 404 || (first.status >= 300 && first.status < 400)) return undefined;
+/** For each known route that exists, fire 25 quick POSTs and see whether any get rate-limited (429). */
+async function rateLimitCheck(fetchImpl: typeof fetch, origin: string, mk: MkFinding): Promise<Finding[]> {
+  const out: Finding[] = [];
+  for (const route of RATE_ROUTES) {
+    const url = origin + route.path;
+    const post = () =>
+      fetchImpl(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(route.path === "/api/chat" ? { message: "hi" } : { email: "scan@antibody.invalid", password: "not-a-password" }),
+      });
 
-  let sawLimit = first.status === 429;
-  for (let i = 1; i < 25 && !sawLimit; i++) {
+    let first: Response;
     try {
-      sawLimit = (await post()).status === 429;
+      first = await post();
     } catch {
-      break;
+      continue; // route not reachable
     }
-  }
-  if (sawLimit) return undefined;
+    // 404 = doesn't exist; 3xx = redirected away (not followed), so there's no endpoint here to hammer.
+    if (first.status === 404 || (first.status >= 300 && first.status < 400)) continue;
 
-  // /api/chat is AI-backed -> treat an unthrottled endpoint as high (cost + abuse risk).
-  return mk("missing_rate_limit", "high", '"/api/chat" has no rate limit', {
-    plainEnglish: `We sent 25 messages to /api/chat in a row and none were blocked. There's nothing stopping someone from hammering it.`,
-    impact: `An attacker can run up your AI bill and overload the endpoint by sending thousands of requests.`,
-    evidence: `25 consecutive POSTs to ${url} with no 429 (rate-limit) response.`,
-    fixHint: `Add per-IP or per-user rate limiting in front of this route (e.g. a token bucket or a limiter like @upstash/ratelimit).`,
-    url,
-  });
+    let sawLimit = first.status === 429;
+    for (let i = 1; i < 25 && !sawLimit; i++) {
+      try {
+        sawLimit = (await post()).status === 429;
+      } catch {
+        break;
+      }
+    }
+    if (sawLimit) continue;
+
+    out.push(
+      mk("missing_rate_limit", route.severity, `"${route.path}" has no rate limit`, {
+        plainEnglish: `We sent 25 ${route.noun} to ${route.path} in a row and none were blocked. There's nothing stopping someone from hammering it.`,
+        impact: route.impact,
+        evidence: `25 consecutive POSTs to ${url} with no 429 (rate-limit) response.`,
+        fixHint: route.fixHint,
+        url,
+      }),
+    );
+  }
+  return out;
 }
 
 const hostOf = (url: string) => URL.parse(url)?.host ?? url;

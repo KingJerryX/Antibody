@@ -1,51 +1,114 @@
 .story-card {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: #171917;
-  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: #10120f;
+  min-height: 228px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font-plex), ui-monospace, monospace;
+  font-size: 13px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  transition: border-color 0.2s ease;
+}
+
+.docs-chapter:hover .story-card { border-color: rgba(255, 255, 255, 0.16); }
+
+.story-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #6e726b;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.story-bar .verb { color: #fdfd76; }
+
+.story-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 188px;
+  padding: 14px;
+  flex: 1;
   justify-content: center;
-  font-family: var(--font-plex), ui-monospace, monospace;
-  font-size: 13px;
 }
 
 .story-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .story-row span { color: #e4e6e1; }
-.story-row em { font-style: normal; color: #9b9e96; }
+.story-row em {
+  font-style: normal;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #9b9e96;
+  font-size: 11px;
+}
 
-.story-row.hot { border-color: rgba(127, 238, 100, 0.45); }
-.story-row.hot em { color: #7fee64; }
+.story-row.hot { border-color: rgba(127, 238, 100, 0.4); }
+.story-row.hot em { background: rgba(127, 238, 100, 0.14); color: #c8f7bb; }
 
 .story-row.stop {
-  border-color: rgba(255, 109, 109, 0.55);
+  border-color: rgba(255, 109, 109, 0.5);
   background: rgba(255, 109, 109, 0.08);
 }
-.story-row.stop em { color: #ff9a9a; }
-.story-row .ok { color: #7fee64; font-style: normal; }
+.story-row.stop em { background: rgba(255, 109, 109, 0.16); color: #ffc9c9; }
+.story-row .ok { background: rgba(127, 238, 100, 0.14); color: #c8f7bb; }
 
 .story-line { padding: 8px 12px; border-radius: 8px; }
 .story-line.del { color: #ff9a9a; background: rgba(255, 109, 109, 0.08); }
 .story-line.add { color: #7fee64; background: rgba(127, 238, 100, 0.08); }
-.story-line.dim { color: #6e726b; }
 
-.story-thread {
-  font-family: var(--font-inter), Inter, sans-serif;
-  font-size: 14px;
-  gap: 10px;
+.story-foot, .story-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: #6e726b;
+  font-size: 12px;
 }
 
-.story-bubble { max-width: 86%; padding: 10px 12px; border-radius: 16px; line-height: 1.4; }
-.story-bubble.them { background: #232623; border-bottom-left-radius: 4px; }
-.story-bubble.me { margin-left: auto; background: #e8ebe4; color: #141614; border-bottom-right-radius: 4px; }
+.story-paste {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 28px 14px 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+}
+
+.story-paste span { color: #6e726b; }
+.story-paste em { font-style: normal; color: #e4e6e1; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-paste b {
+  flex: none;
+  margin-left: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #fff;
+  color: #141614;
+  font-weight: 500;
+  font-family: var(--font-inter), Inter, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.story-thread { font-family: var(--font-inter), Inter, sans-serif; }
+
+.story-bubble { max-width: 88%; padding: 10px 12px; border-radius: 16px; line-height: 1.4; font-size: 14px; }
+.story-bubble.them { background: #232623; border-bottom-left-radius: 4px; color: #e4e6e1; }
+.story-bubble.me { margin-left: auto; background: #0a84ff; color: #fff; border-bottom-right-radius: 4px; }

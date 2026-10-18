@@ -24,6 +24,7 @@ describe("inspectSurface", () => {
     const r = page("<html></html>");
     expect(r.issues).toEqual([]);
     expect(r.passed).toContain("security_headers");
+    expect(r.passed).toContain("csp");
     expect(r.passed).toContain("https");
   });
 
@@ -35,6 +36,7 @@ describe("inspectSurface", () => {
     expect(titles).toContain("low:Pages can be embedded in another site");
     expect(titles).toContain("low:Browsers are allowed to guess file types");
     expect(r.passed).not.toContain("security_headers");
+    expect(r.passed).not.toContain("csp");
   });
 
   it("flags public HTTP and leaves localhost alone", () => {
