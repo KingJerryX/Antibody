@@ -14,9 +14,11 @@ import { observe, recordOutcome as recordCtxOutcome, resetEngine, routeOf, score
 
 export type { RequestContext } from "./engine.ts";
 
-const CHALK_TIMEOUT_MS = 150;
-/** After a Chalk failure, skip Chalk for this long (circuit breaker) so requests don't each wait the timeout. */
-const CHALK_COOLDOWN_MS = 30_000;
+const CHALK_TIMEOUT_MS = 800;
+/** Skip Chalk only after this many failures, so one cold start does not hide it. */
+const CHALK_FAILS_BEFORE_PAUSE = 3;
+/** After repeated failures, skip Chalk for this long so a dead store does not add the timeout to every request. */
+const CHALK_COOLDOWN_MS = 5_000;
 /** At most one activity event per actor per this long, so a flood doesn't flood the feed too. */
 const REPORT_EVERY_MS = 10_000;
 
@@ -62,6 +64,8 @@ export function recordOutcome(req: Request | RequestContext, status: number) {
 type ChalkQuery = (inputs: Record<string, string | number>, outputs: string[]) => Promise<Record<string, { value: unknown }>>;
 let chalk: Promise<ChalkQuery> | undefined;
 let chalkDownUntil = 0;
+let chalkFailures = 0;
+let warming = false;
 let loggedMode = false;
 
 const hasChalkCreds = () => Boolean(process.env.CHALK_CLIENT_ID && process.env.CHALK_CLIENT_SECRET);
@@ -126,6 +130,38 @@ async function askChalk(ctx: RequestContext, f: Features): Promise<ShieldDecisio
 
 const withNote = (d: ShieldDecision, note: string): ShieldDecision => ({ ...d, reasons: [...d.reasons, note] });
 
+const WARM_INPUTS = {
+  "request.id": "warm",
+  "request.method": "GET",
+  "request.path": "/api/health",
+  "request.session_id": "warm",
+  "request.ip_id": "127.0.0.1",
+  "request.endpoint_id": "/api/health",
+  "request.session_distinct_users_5m": 0,
+  "request.session_user_read_span_s": 0,
+  "request.ip_route_rpm": 0,
+  "request.ip_failed_logins_10m": 0,
+  "request.ip_login_attempts_10m": 0,
+  "request.session_ai_calls_1m": 0,
+};
+
+/** Exchange credentials before traffic arrives. A failure here does not open the pause. */
+function warmChalk() {
+  if (warming || !hasChalkCreds() || Date.now() < chalkDownUntil) return;
+  warming = true;
+  const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("warm timeout")), 8_000));
+  void Promise.race([chalkQuery().then((query) => query(WARM_INPUTS, CHALK_OUTPUTS)), timeout])
+    .then(() => {
+      chalkFailures = 0;
+    })
+    .catch(() => {
+      chalk = undefined;
+    })
+    .finally(() => {
+      warming = false;
+    });
+}
+
 /**
  * Record the request and decide. Uses Chalk when CHALK_CLIENT_ID/SECRET are set, else the local engine.
  * If Chalk is slow or down, the local engine decides instead (it never errors and never blocks normal browsing),
@@ -136,16 +172,23 @@ export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
   const useChalk = hasChalkCreds();
   if (!loggedMode) {
     loggedMode = true;
-    console.log(useChalk ? "[shield] Chalk mode (150ms timeout, local engine fallback)" : "[shield] MOCK: no Chalk creds, using local feature engine");
+    console.log(useChalk ? "[shield] Chalk mode (800ms timeout, local engine fallback)" : "[shield] MOCK: no Chalk creds, using local feature engine");
   }
   if (!useChalk) return score(f, ctx);
+  if (warming) return withNote(score(f, ctx), "Chalk warming; local engine decided");
   if (Date.now() < chalkDownUntil) return withNote(score(f, ctx), "Chalk paused after a failure; local engine decided");
   try {
-    return await askChalk(ctx, f);
+    const decided = await askChalk(ctx, f);
+    chalkFailures = 0;
+    return decided;
   } catch (err) {
     const msg = (err instanceof Error ? err.message : String(err)).slice(0, 80);
-    chalkDownUntil = Date.now() + CHALK_COOLDOWN_MS;
-    console.warn(`[shield] Chalk unavailable (${msg}); using the local engine for ${CHALK_COOLDOWN_MS / 1000}s`);
+    chalkFailures += 1;
+    if (chalkFailures >= CHALK_FAILS_BEFORE_PAUSE) {
+      chalkFailures = 0;
+      chalkDownUntil = Date.now() + CHALK_COOLDOWN_MS;
+      console.warn(`[shield] Chalk unavailable (${msg}); pausing for ${CHALK_COOLDOWN_MS / 1000}s`);
+    }
     return withNote(score(f, ctx), `Chalk unavailable (${msg}); local engine decided`);
   }
 }
@@ -154,6 +197,7 @@ export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
 
 export function createShield(opts: { projectId: string; protect?: (pathname: string) => boolean }) {
   const protect = opts.protect ?? isSensitive;
+  warmChalk();
   const eventsUrl = `${process.env.ANTIBODY_WEB_URL ?? "http://localhost:3000"}/api/events`;
   const lastReport = new Map<string, number>();
   let lastSweep = 0;
@@ -176,7 +220,9 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
         projectId: opts.projectId,
         type: "block",
         title: `${d.action === "block" ? "Blocked" : "Challenged"} ${ctx.method} ${ctx.pathname}`,
-        detail: `${d.reasons.join("; ")} (risk ${d.riskScore}, source ${d.source})`,
+        detail: d.reasons.join("; "),
+        source: d.source,
+        riskScore: d.riskScore,
         channel: "web",
       };
       fetch(eventsUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) }).catch(() => {});
@@ -195,4 +241,6 @@ export function resetShield() {
   resetEngine();
   chalk = undefined;
   chalkDownUntil = 0;
+  chalkFailures = 0;
+  warming = false;
 }

@@ -102,16 +102,19 @@ describe("chalk path", () => {
     expect(d!.reasons.at(-1)).toMatch(/Chalk paused/);
   });
 
-  it("stays within the 150ms budget when Chalk hangs, and later requests don't wait", async () => {
+  it("stays within the 800ms budget when Chalk hangs, and pauses after repeated timeouts", async () => {
     vi.stubEnv("CHALK_CLIENT_ID", "test-id");
     vi.stubEnv("CHALK_CLIENT_SECRET", "test-secret");
     chalkMock.mode = "hang";
     let t = Date.now();
     expect((await evaluate(ctx("/api/users/1", 1))).source).toBe("local");
-    expect(Date.now() - t).toBeLessThan(400);
-    t = Date.now();
+    expect(Date.now() - t).toBeLessThan(1200);
     await evaluate(ctx("/api/users/2", 2));
+    await evaluate(ctx("/api/users/3", 3)); // third failure opens the pause
+    t = Date.now();
+    const paused = await evaluate(ctx("/api/users/4", 4));
     expect(Date.now() - t).toBeLessThan(50);
+    expect(paused.reasons.at(-1)).toMatch(/Chalk paused/);
   });
 
   it("uses Chalk's decision when it answers", async () => {
@@ -139,7 +142,8 @@ describe("createShield", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1); // throttled: one event per actor per 10s
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
-    expect(body).toMatchObject({ projectId: "demo", type: "block", channel: "web" });
+    expect(body).toMatchObject({ projectId: "demo", type: "block", channel: "web", source: "local" });
+    expect(body.riskScore).toBeGreaterThan(0);
     expect(body.detail).not.toContain("abc123"); // session token never leaks
   });
 });

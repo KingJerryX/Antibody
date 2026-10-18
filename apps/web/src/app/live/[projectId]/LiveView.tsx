@@ -58,6 +58,7 @@ export function LiveView({ startCode }: { startCode?: string }) {
           </nav>
           <span className="report-links">
             {scanId && <Link href={`/report/${scanId}`}>Report</Link>}
+            <Link href="/evals">Eval</Link>
             <Link href={`/connect/${projectId}`}>Set up alerts</Link>
           </span>
         </div>
@@ -128,11 +129,22 @@ function Stat({ label, value, tone, href }: { label: string; value: number; tone
   );
 }
 
+function sourceLabel(source: ActivityEvent["source"]) {
+  if (source === "chalk") return "Chalk";
+  if (source === "local") return "On-device";
+  if (source === "fail_open") return "Fail open";
+  return "";
+}
+
 function FeedItem({ event: e }: { event: ActivityEvent }) {
   const tone = FEED_TONE[e.type] ?? "";
+  const who = e.type === "block" ? sourceLabel(e.source) : "";
   return (
     <li className={`event ${e.type === "block" ? "alarm" : ""}`}>
-      <span className={`feed-tag ${tone}`}>{ACTIVITY_LABEL[e.type] ?? e.type}</span>
+      <span className="feed-marks">
+        <span className={`feed-tag ${tone}`}>{ACTIVITY_LABEL[e.type] ?? e.type}</span>
+        {who && <span className={`feed-tag ${e.source === "chalk" ? "info" : ""}`}>{who}</span>}
+      </span>
       <div>
         <h3>
           {e.title}

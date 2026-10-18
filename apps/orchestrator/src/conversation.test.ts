@@ -59,5 +59,15 @@ it("routes replies to the right project and ignores strangers", async () => {
   expect(await reply(owner, `start ${code.toLowerCase()}`)).toMatch(/connected/);
   expect(ownerOf("p4001", await readDb())).toBe(owner);
   expect(await reply(owner, "STATUS")).toMatch(/No scans yet/);
+  await logActivity({
+    projectId: "p4001",
+    type: "block",
+    title: "Blocked GET /api/users/6",
+    detail: "this session read 6 different users' profiles in 20s; normal is 1",
+    channel: "web",
+    source: "chalk",
+    riskScore: 1,
+  });
+  expect(await reply(owner, "STATUS")).toMatch(/Latest block: this session read 6 different users/);
   expect(await reply(stranger, "STATUS")).toMatch(/isn't linked/);
 });

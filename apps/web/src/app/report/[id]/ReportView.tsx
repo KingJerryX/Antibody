@@ -158,6 +158,7 @@ export function ReportView() {
             <span className="report-links">
               <Link href={`/connect/${scan.projectId}`}>Set up alerts</Link>
               <Link href={`/live/${scan.projectId}`}>Live view</Link>
+              <Link href="/evals">Eval</Link>
             </span>
           ) : (
             <span className="report-links">

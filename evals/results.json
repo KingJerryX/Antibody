@@ -1,19 +1,22 @@
 {
-  "generatedAt": "2026-10-17T16:43:03.147Z",
-  "mode": "live",
-  "target": "sample-app",
+  "generatedAt": "2026-10-18T06:00:51.883Z",
+  "mode": "mock",
+  "target": "local-engine",
   "scanner": {
     "seeded": 6,
-    "found": 6,
+    "found": 0,
     "falseAlarms": 0
   },
   "shield": {
     "attacks": 3,
     "blocked": 3,
-    "normal": 20,
+    "normal": 32,
     "wronglyBlocked": 0,
     "requestsBeforeBlock": 10,
-    "p95Ms": 1217.7
+    "p95Ms": 0.1,
+    "normalSessions": 8,
+    "chalkDecisions": 0,
+    "localDecisions": 3
   },
   "fixes": {
     "attempted": 0,

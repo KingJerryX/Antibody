@@ -145,6 +145,35 @@ export interface ActivityEvent {
   channel?: Channel;
   /** Id of the related finding, fix, or scan. */
   refId?: string;
+  /** Set on shield blocks: who produced the decision. */
+  source?: ShieldDecision["source"];
+  /** 0 to 1, set on shield blocks. */
+  riskScore?: number;
+}
+
+/** One eval run. Written by `evals/run.ts`, shown on /evals. */
+export interface EvalSnapshot {
+  generatedAt: string;
+  /** live = blocked responses came back from Chalk. mock = the local engine decided. */
+  mode: "mock" | "live";
+  target: "sample-app" | "local-engine";
+  scanner: { seeded: number; found: number; falseAlarms: number };
+  shield: {
+    attacks: number;
+    blocked: number;
+    /** Requests from normal sessions. */
+    normal: number;
+    /** Normal sessions, each sending several requests, so a false block is possible. */
+    normalSessions: number;
+    wronglyBlocked: number;
+    requestsBeforeBlock: number;
+    p95Ms: number;
+    /** Blocked or challenged responses whose shield header said Chalk. */
+    chalkDecisions: number;
+    /** Blocked or challenged responses decided by the local engine. */
+    localDecisions: number;
+  };
+  fixes: { attempted: number; passed: number };
 }
 
 export interface ShieldDecision {

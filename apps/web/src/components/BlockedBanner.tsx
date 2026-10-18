@@ -125,7 +125,11 @@ export function BlockedBanner({ event, onDone }: { event: ActivityEvent; onDone:
         <Icon name="ban" className="h-8 w-8" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold uppercase tracking-widest text-red-200">Attack blocked</p>
+        <p className="text-sm font-semibold uppercase tracking-widest text-red-200">
+          Attack blocked
+          {event.source === "chalk" && <span className="ml-2 rounded-full bg-white/15 px-2 py-0.5 text-[11px] tracking-normal">Chalk</span>}
+          {event.source === "local" && <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-[11px] tracking-normal">On-device</span>}
+        </p>
         <p className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">{event.title}</p>
         {event.detail && <p className="mt-1 truncate text-red-100/80">{event.detail}</p>}
       </div>

@@ -120,13 +120,18 @@ export async function handleText(projectId: string, from: string, text: string):
     const scan = db.scans.filter((s) => s.projectId === projectId).at(-1);
     const ready = db.fixes.filter((f) => f.projectId === projectId && f.status === "ready");
     const latest = ready.at(-1);
-    const blocks = db.activity.filter((a) => a.projectId === projectId && a.type === "block" && Date.now() - Date.parse(a.at) < 86_400_000).length;
+    const recentBlocks = db.activity.filter((a) => a.projectId === projectId && a.type === "block" && Date.now() - Date.parse(a.at) < 86_400_000);
+    const blocks = recentBlocks.length;
+    const latestBlock = recentBlocks.at(-1);
     const open = scan?.findings.length ?? 0;
     return [
       scan ? `Last scan: ${open} issue${open === 1 ? "" : "s"} on ${scan.targetUrl}.` : "No scans yet.",
       `${ready.length} fix${ready.length === 1 ? "" : "es"} ready to review${latest ? ` (latest: ${latest.id})` : ""}.`,
       `${blocks} request${blocks === 1 ? "" : "s"} blocked in the last 24h.`,
-    ].join(" ");
+      latestBlock?.detail ? `Latest block: ${latestBlock.detail.split(";")[0]}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   if (intent.kind === "approve") {
