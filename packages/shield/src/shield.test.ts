@@ -4,6 +4,9 @@ import { createShield, evaluate, recordOutcome, resetShield, type RequestContext
 const chalkMock = vi.hoisted(() => ({ mode: "reject" as "reject" | "hang" | "ok" }));
 vi.mock("@chalk-ai/client", () => ({
   ChalkClient: class {
+    uploadSingle() {
+      return Promise.resolve();
+    }
     query() {
       if (chalkMock.mode === "reject") return Promise.reject(new Error("connect ECONNREFUSED"));
       if (chalkMock.mode === "hang") return new Promise(() => {});

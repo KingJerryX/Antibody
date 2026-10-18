@@ -149,6 +149,8 @@ export interface ActivityEvent {
   source?: ShieldDecision["source"];
   /** 0 to 1, set on shield blocks. */
   riskScore?: number;
+  /** Feature counts from the shield, so the fixer can ask Chalk to score this request again. */
+  counts?: RequestCounts;
 }
 
 /** One eval run. Written by `evals/run.ts`, or by a scan of the deployed sample. Shown on /evals. */
@@ -176,6 +178,20 @@ export interface EvalSnapshot {
     localDecisions: number;
   };
   fixes: { attempted: number; passed: number };
+  /** What the fix replay found, when this run included one. */
+  fixNote?: string;
+}
+
+/** Window counts for one shielded request. The fixer sends these back to Chalk to rescore. */
+export interface RequestCounts {
+  method: string;
+  path: string;
+  distinctUsers: number;
+  spanS: number;
+  routeRpm: number;
+  failedLogins: number;
+  loginAttempts: number;
+  aiCalls: number;
 }
 
 export interface ShieldDecision {

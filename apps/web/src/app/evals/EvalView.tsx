@@ -16,6 +16,7 @@ const BEATS = [
   { route: "GET /api/users/7", why: "One session reading other people's profiles" },
   { route: "POST /api/chat", why: "A flood of model calls from one session" },
   { route: "GET /supabase/rest/v1/users", why: "A scrape of the users table" },
+  { route: "GET /api/users/2", why: "The patch refuses the other profile" },
 ] as const;
 
 export function EvalView() {
@@ -117,14 +118,24 @@ function Board({ snap }: { snap: EvalSnapshot }) {
         <Stat label="False alarms" value={String(snap.scanner.falseAlarms)} tone={snap.scanner.falseAlarms ? "bad" : "good"} />
         <Stat label="Attacks blocked" value={`${s.blocked}/${s.attacks}`} tone={s.blocked === s.attacks ? "good" : "bad"} />
         <Stat label="Normal requests blocked" value={`${s.wronglyBlocked}/${s.normal}`} tone={s.wronglyBlocked ? "bad" : "good"} />
+        <Stat label="Fixes replayed" value={`${snap.fixes.passed}/${snap.fixes.attempted}`} tone={snap.fixes.attempted > 0 && snap.fixes.passed === snap.fixes.attempted ? "good" : snap.fixes.attempted ? "bad" : ""} />
       </div>
+      {snap.fixes.passed > 0 && (
+        <div>
+          <p className="sub">Fix replay</p>
+          <div className="attack-lane" aria-hidden="true">
+            <span className="gate" />
+            <span className="ticket go">GET /api/users/1</span>
+            <span className="ticket halt">GET /api/users/2</span>
+            <p className="why">Chalk scored it again. The other profile is refused.</p>
+          </div>
+        </div>
+      )}
       <p className="sub">
         {sessions} normal sessions, {s.normal} requests. First block after about {s.requestsBeforeBlock} requests. p95 {s.p95Ms} ms.
         {chalk + local > 0 && ` ${chalk} blocked response${chalk === 1 ? "" : "s"} from Chalk, ${local} from the on-device engine.`}
       </p>
-      <p className="sub">
-        This run scores the deployed NoteNest. Fix proposals are not part of it.
-      </p>
+      <p className="sub">{snap.fixNote ?? "This run scores the deployed NoteNest."}</p>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { bearerMatches, logActivity, type ActivityEvent, type ActivityType, type Channel, type ShieldDecision } from "@antibody/core";
+import { bearerMatches, logActivity, type ActivityEvent, type ActivityType, type Channel, type RequestCounts, type ShieldDecision } from "@antibody/core";
 import { proxyToOrchestrator, readStore } from "@/lib/server";
 
 const TYPES: ActivityType[] = ["scan_started", "scan_done", "finding", "fix_drafting", "fix_ready", "message_out", "message_in", "call", "block", "approval", "undo"];
@@ -8,6 +8,22 @@ const SOURCES: ShieldDecision["source"][] = ["chalk", "local", "fail_open"];
 const str = (v: unknown, max: number) => (typeof v === "string" && v.length > 0 && v.length <= max ? v : undefined);
 const sourceOf = (v: unknown): ShieldDecision["source"] | undefined => (typeof v === "string" && SOURCES.includes(v as ShieldDecision["source"]) ? (v as ShieldDecision["source"]) : undefined);
 const riskOf = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined);
+const countOf = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1_000_000 ? v : undefined);
+
+function countsOf(v: unknown): RequestCounts | undefined {
+  if (!v || typeof v !== "object") return;
+  const o = v as Record<string, unknown>;
+  const method = str(o.method, 12);
+  const path = str(o.path, 200);
+  const distinctUsers = countOf(o.distinctUsers);
+  const spanS = countOf(o.spanS);
+  const routeRpm = countOf(o.routeRpm);
+  const failedLogins = countOf(o.failedLogins);
+  const loginAttempts = countOf(o.loginAttempts);
+  const aiCalls = countOf(o.aiCalls);
+  if (!method || !path || distinctUsers === undefined || spanS === undefined || routeRpm === undefined || failedLogins === undefined || loginAttempts === undefined || aiCalls === undefined) return;
+  return { method, path, distinctUsers, spanS, routeRpm, failedLogins, loginAttempts, aiCalls };
+}
 
 /** Blocks closer together than this are one attack: the owner hears about the first one only. */
 const ATTACK_GAP_MS = 10 * 60_000;
@@ -40,6 +56,7 @@ export async function POST(request: Request) {
     refId: str(b.refId, 100),
     source: sourceOf(b.source),
     riskScore: riskOf(b.riskScore),
+    counts: countsOf(b.counts),
   };
   const alert = event.type === "block" && (event.riskScore ?? 1) >= BLOCK_AT ? await firstBlockOfAttack(projectId) : undefined;
   const logged = await logActivity(event);

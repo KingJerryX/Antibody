@@ -9,7 +9,7 @@
 // Returning undefined lets the request through; returning a Response short-circuits it.
 // Proxy runs on the Node.js runtime in Next 16, so node:crypto and the Chalk client work.
 import { createHash } from "node:crypto";
-import type { ShieldDecision } from "@antibody/core";
+import type { RequestCounts, ShieldDecision } from "@antibody/core";
 import { observe, recordOutcome as recordCtxOutcome, resetEngine, routeOf, score, type Features, type RequestContext } from "./engine.ts";
 
 export type { RequestContext } from "./engine.ts";
@@ -37,6 +37,24 @@ function ipOf(req: Request): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0].trim() || req.headers.get("x-real-ip") || "local";
 }
 
+/** Fingerprint of a session cookie or bearer token. The raw token is not stored. */
+export function sessionFingerprint(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex").slice(0, 12);
+}
+
+/** Chalk primary key for the latest request from this session. The fixer and the eval read it back. */
+export const sessionRowId = (sessionId: string) => `session:${sessionId}`;
+/** Chalk primary key for the latest block on a project. */
+export const projectRowId = (projectId: string) => `project:${projectId}`;
+
+export interface BlockContext {
+  path: string;
+  decision: string;
+  riskScore: number;
+  reasons: string[];
+  distinctUsers: number;
+}
+
 /** Fingerprint of the session cookie or bearer token; the raw token never leaves this function. */
 function sessionOf(req: Request): string | undefined {
   // A Supabase-style public anon key (sent with an `apikey` header) is shared by every visitor: not a session.
@@ -47,7 +65,7 @@ function sessionOf(req: Request): string | undefined {
     .map((c) => c.trim())
     .find((c) => SESSION_COOKIE.test(c));
   const raw = auth ?? cookie;
-  return raw ? createHash("sha256").update(raw).digest("hex").slice(0, 12) : undefined;
+  return raw ? sessionFingerprint(raw) : undefined;
 }
 
 function contextFrom(req: Request): RequestContext {
@@ -61,8 +79,12 @@ export function recordOutcome(req: Request | RequestContext, status: number) {
 
 // --- Chalk path --------------------------------------------------------------------------------
 
-type ChalkQuery = (inputs: Record<string, string | number>, outputs: string[]) => Promise<Record<string, { value: unknown }>>;
-let chalk: Promise<ChalkQuery> | undefined;
+type ChalkQuery = (inputs: Record<string, string | number>, outputs: string[], timeoutMs?: number) => Promise<Record<string, { value: unknown }>>;
+type ChalkApi = {
+  query: ChalkQuery;
+  upload: (features: Record<string, string | number>) => Promise<void>;
+};
+let chalk: Promise<ChalkApi> | undefined;
 let chalkDownUntil = 0;
 let chalkFailures = 0;
 let warming = false;
@@ -70,7 +92,7 @@ let loggedMode = false;
 
 const hasChalkCreds = () => Boolean(process.env.CHALK_CLIENT_ID && process.env.CHALK_CLIENT_SECRET);
 
-function chalkQuery(): Promise<ChalkQuery> {
+function chalkApi(): Promise<ChalkApi> {
   // Imported lazily: the client pulls in gRPC, which we don't want loaded in mock mode.
   chalk ??= import("@chalk-ai/client").then(({ ChalkClient }) => {
     const client = new ChalkClient({
@@ -79,14 +101,101 @@ function chalkQuery(): Promise<ChalkQuery> {
       activeEnvironment: process.env.CHALK_ENVIRONMENT || undefined,
       apiServer: process.env.CHALK_API_SERVER || undefined,
     });
-    return async (inputs, outputs) =>
-      (await client.query({ inputs, outputs }, { timeout: CHALK_TIMEOUT_MS })).data as Record<string, { value: unknown }>;
+    return {
+      query: async (inputs, outputs, timeoutMs = CHALK_TIMEOUT_MS) =>
+        (await client.query({ inputs, outputs }, { timeout: timeoutMs })).data as Record<string, { value: unknown }>,
+      upload: (features) => client.uploadSingle({ features }),
+    };
   });
   chalk.catch(() => (chalk = undefined)); // retry construction next time instead of caching the failure
   return chalk;
 }
 
 const CHALK_OUTPUTS = ["request.risk_score", "request.decision", "request.reasons"];
+
+const READ_OUTPUTS = ["request.path", "request.decision", "request.risk_score", "request.reasons", "request.session_distinct_users_5m"];
+
+function rowFeatures(rowId: string, ctx: RequestContext, f: Features): Record<string, string | number> {
+  return { ...chalkInputs(ctx, f), "request.id": rowId };
+}
+
+/** Best-effort copy of the request. This environment cannot query that row back; rescore() is the read path. */
+export async function saveRequest(rowId: string, ctx: RequestContext, f: Features): Promise<void> {
+  if (!hasChalkCreds()) return;
+  await (await chalkApi()).upload(rowFeatures(rowId, ctx, f));
+}
+
+/** Read a stored request back. Returns null when Chalk has no row or is unreachable. */
+export async function readRequest(rowId: string): Promise<BlockContext | null> {
+  if (!hasChalkCreds()) return null;
+  const data = await (await chalkApi()).query({ "request.id": rowId }, READ_OUTPUTS);
+  const value = (key: string) => data[key]?.value;
+  const path = typeof value("request.path") === "string" ? (value("request.path") as string) : "";
+  const decision = typeof value("request.decision") === "string" ? (value("request.decision") as string) : "";
+  if (!path && !decision) return null;
+  const reasons = value("request.reasons");
+  return {
+    path,
+    decision,
+    riskScore: Number(value("request.risk_score")) || 0,
+    reasons: Array.isArray(reasons) ? reasons.map(String) : [],
+    distinctUsers: Number(value("request.session_distinct_users_5m")) || 0,
+  };
+}
+
+const countsOn = new WeakMap<ShieldDecision, RequestCounts>();
+
+function countsFrom(ctx: RequestContext, f: Features): RequestCounts {
+  return {
+    method: ctx.method,
+    path: ctx.pathname,
+    distinctUsers: f.sessionDistinctUsers5m,
+    spanS: f.sessionUserReadSpanS,
+    routeRpm: f.ipRouteRpm,
+    failedLogins: f.ipFailedLogins10m,
+    loginAttempts: f.ipLoginAttempts10m,
+    aiCalls: f.sessionAiCalls1m,
+  };
+}
+
+/** Counts for the request that produced this decision. Present on every decision evaluate() returns. */
+export function requestCounts(decision: ShieldDecision): RequestCounts | undefined {
+  return countsOn.get(decision);
+}
+
+/** Ask Chalk to score a request the shield already counted. Same query the live shield uses. */
+export async function rescore(counts: RequestCounts): Promise<BlockContext | null> {
+  if (!hasChalkCreds()) return null;
+  const data = await (await chalkApi()).query(
+    {
+      "request.id": crypto.randomUUID(),
+      "request.method": counts.method,
+      "request.path": counts.path,
+      "request.session_id": "replay",
+      "request.ip_id": "replay",
+      "request.endpoint_id": routeOf(counts.path),
+      "request.session_distinct_users_5m": counts.distinctUsers,
+      "request.session_user_read_span_s": counts.spanS,
+      "request.ip_route_rpm": counts.routeRpm,
+      "request.ip_failed_logins_10m": counts.failedLogins,
+      "request.ip_login_attempts_10m": counts.loginAttempts,
+      "request.session_ai_calls_1m": counts.aiCalls,
+    },
+    CHALK_OUTPUTS,
+    8_000,
+  );
+  const decision = data["request.decision"]?.value;
+  const riskScore = Number(data["request.risk_score"]?.value);
+  if ((decision !== "allow" && decision !== "block" && decision !== "challenge") || !Number.isFinite(riskScore)) return null;
+  const reasons = data["request.reasons"]?.value;
+  return {
+    path: counts.path,
+    decision,
+    riskScore,
+    reasons: Array.isArray(reasons) ? reasons.map(String) : [],
+    distinctUsers: counts.distinctUsers,
+  };
+}
 
 function chalkInputs(ctx: RequestContext, f: Features): Record<string, string | number> {
   return {
@@ -114,7 +223,7 @@ async function askChalk(ctx: RequestContext, f: Features): Promise<ShieldDecisio
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`timed out after ${CHALK_TIMEOUT_MS}ms`)), CHALK_TIMEOUT_MS);
     });
-    const query = await Promise.race([chalkQuery(), timeout]);
+    const query = await Promise.race([chalkApi().then((api) => api.query), timeout]);
     const data = await Promise.race([query(chalkInputs(ctx, f), CHALK_OUTPUTS), timeout]);
     const action = data["request.decision"]?.value;
     const riskScore = Number(data["request.risk_score"]?.value);
@@ -150,7 +259,7 @@ function warmChalk() {
   if (warming || !hasChalkCreds() || Date.now() < chalkDownUntil) return;
   warming = true;
   const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("warm timeout")), 8_000));
-  void Promise.race([chalkQuery().then((query) => query(WARM_INPUTS, CHALK_OUTPUTS)), timeout])
+  void Promise.race([chalkApi().then((api) => api.query(WARM_INPUTS, CHALK_OUTPUTS)), timeout])
     .then(() => {
       chalkFailures = 0;
     })
@@ -167,20 +276,29 @@ function warmChalk() {
  * If Chalk is slow or down, the local engine decides instead (it never errors and never blocks normal browsing),
  * so a broken feature store neither takes the app down nor switches the shield off.
  */
-export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
+export async function evaluate(ctx: RequestContext, projectId?: string): Promise<ShieldDecision> {
   const f = observe(ctx);
   const useChalk = hasChalkCreds();
+  const finish = (decided: ShieldDecision) => {
+    countsOn.set(decided, countsFrom(ctx, f));
+    return decided;
+  };
+  const remember = (decided: ShieldDecision) => {
+    const ids = [ctx.sessionId ? sessionRowId(ctx.sessionId) : "", projectId && decided.action !== "allow" ? projectRowId(projectId) : ""].filter(Boolean);
+    for (const id of ids) void saveRequest(id, ctx, f).catch(() => {});
+    return finish(decided);
+  };
   if (!loggedMode) {
     loggedMode = true;
     console.log(useChalk ? "[shield] Chalk mode (800ms timeout, local engine fallback)" : "[shield] MOCK: no Chalk creds, using local feature engine");
   }
-  if (!useChalk) return score(f, ctx);
-  if (warming) return withNote(score(f, ctx), "Chalk warming; local engine decided");
-  if (Date.now() < chalkDownUntil) return withNote(score(f, ctx), "Chalk paused after a failure; local engine decided");
+  if (!useChalk) return finish(score(f, ctx));
+  if (warming) return remember(withNote(score(f, ctx), "Chalk warming; local engine decided"));
+  if (Date.now() < chalkDownUntil) return remember(withNote(score(f, ctx), "Chalk paused after a failure; local engine decided"));
   try {
     const decided = await askChalk(ctx, f);
     chalkFailures = 0;
-    return decided;
+    return remember(decided);
   } catch (err) {
     const msg = (err instanceof Error ? err.message : String(err)).slice(0, 80);
     chalkFailures += 1;
@@ -189,7 +307,7 @@ export async function evaluate(ctx: RequestContext): Promise<ShieldDecision> {
       chalkDownUntil = Date.now() + CHALK_COOLDOWN_MS;
       console.warn(`[shield] Chalk unavailable (${msg}); pausing for ${CHALK_COOLDOWN_MS / 1000}s`);
     }
-    return withNote(score(f, ctx), `Chalk unavailable (${msg}); local engine decided`);
+    return remember(withNote(score(f, ctx), `Chalk unavailable (${msg}); local engine decided`));
   }
 }
 
@@ -205,7 +323,7 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
   return async (request: Request): Promise<Response | undefined> => {
     const ctx = contextFrom(request);
     if (!protect(ctx.pathname)) return undefined;
-    const d = await evaluate(ctx);
+    const d = await evaluate(ctx, opts.projectId);
     if (d.action === "allow") return undefined;
 
     // Per action, so a challenge that escalates to a block within the window still reports the block (that one alerts).
@@ -225,6 +343,7 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
         source: d.source,
         riskScore: d.riskScore,
         channel: "web",
+        counts: requestCounts(d),
       };
       // The web app only accepts reports carrying the shared token: a block can ring the owner's phone.
       const token = process.env.ANTIBODY_ORCHESTRATOR_TOKEN?.trim();

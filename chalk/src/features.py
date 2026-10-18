@@ -136,6 +136,9 @@ def score(distinct_users: int, span_s: int, route_rpm: int, failed_logins: int, 
 
 @online
 def score_request(
+    # Edge-computed counts, passed in on the live query. Session/Ip/Endpoint windows stay at 0
+    # until request events are streamed, so this resolver does not join them: an empty window
+    # would turn a real block into an allow.
     distinct_users: Request.session_distinct_users_5m,
     span_s: Request.session_user_read_span_s,
     route_rpm: Request.ip_route_rpm,

@@ -7,8 +7,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { EvalSnapshot, FindingKind } from "@antibody/core";
+import type { EvalSnapshot, FindingKind, RequestCounts } from "@antibody/core";
 import { scanUrl } from "@antibody/scanner";
+import { proveIdorFix } from "./fix-proof.ts";
 import { scoreScan, scoreShield } from "./metrics.ts";
 import seededFile from "./seeded.json";
 
@@ -16,6 +17,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 /** Deployed sample. The shield is on; this is the app the scoreboard measures. */
 export const PROD_ORIGIN = "https://notenest-henna.vercel.app";
+/** Unsigned project id the NoteNest shield posts blocks to. */
+const NOTE_NEST = "proj_notenest-henna-vercel-app";
 
 /** One .env.local at the repo root; read the one var we need rather than pull in a dep. */
 function verifiedFromEnv(): string[] {
@@ -160,7 +163,13 @@ export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
   const report = await scanUrl(`${base}/`, { projectId: "eval", verifiedDomains, fetchImpl: pacedFetch });
   const kinds = report.findings.map((f) => f.kind);
   const scanner = scoreScan(seeded, kinds);
+  const started = Date.now();
   const shield = await liveShield(base);
+  const proof = await proveIdorFix(() => idorCountsSince(started)).catch((err: unknown) => ({
+    attempted: 1,
+    passed: 0,
+    note: err instanceof Error ? err.message : "Fix replay failed",
+  }));
   const mode: EvalSnapshot["mode"] = shield.chalkDecisions > 0 && shield.localDecisions === 0 ? "live" : "mock";
   console.log(`Scan: found ${scanner.found}/${scanner.seeded} seeded holes (${kinds.join(", ")}), ${scanner.falseAlarms} false alarms.`);
   console.log(`Shield (${mode} Chalk, ${base}): blocked ${shield.blocked}/${shield.attacks} after ~${shield.requestsBeforeBlock} reqs, wrongly blocked ${shield.wronglyBlocked}/${shield.normal} normal (${shield.normalSessions} sessions), chalk ${shield.chalkDecisions}, local ${shield.localDecisions}, p95 ${shield.p95Ms}ms.`);
@@ -171,8 +180,19 @@ export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
     host: new URL(base).host,
     scanner,
     shield,
-    fixes: { attempted: 0, passed: 0 },
+    fixes: { attempted: proof.attempted, passed: proof.passed },
+    fixNote: proof.note,
   };
+}
+
+/** The latest profile-walk block the shield reported during this run. */
+async function idorCountsSince(since: number): Promise<RequestCounts | null> {
+  const web = (process.env.ANTIBODY_WEB_URL ?? "https://antibody-ky3j.vercel.app").replace(/\/$/, "");
+  const res = await fetch(`${web}/api/activity?projectId=${encodeURIComponent(NOTE_NEST)}`);
+  if (!res.ok) return null;
+  const events = (await res.json()) as { type?: string; at?: string; counts?: RequestCounts }[];
+  const hit = events.filter((e) => e.type === "block" && e.counts?.path.includes("/api/users/") && Date.parse(e.at ?? "") >= since - 2_000).at(-1);
+  return hit?.counts ?? null;
 }
 
 const invoked = process.argv[1]?.replaceAll("\\", "/").endsWith("evals/run.ts");
