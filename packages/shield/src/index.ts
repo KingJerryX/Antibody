@@ -225,7 +225,10 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
         riskScore: d.riskScore,
         channel: "web",
       };
-      fetch(eventsUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) }).catch(() => {});
+      // The web app only accepts reports carrying the shared token: a block can ring the owner's phone.
+      const token = process.env.ANTIBODY_ORCHESTRATOR_TOKEN?.trim();
+      const headers = { "content-type": "application/json", ...(token && { authorization: `Bearer ${token}` }) };
+      fetch(eventsUrl, { method: "POST", headers, body: JSON.stringify(event) }).catch(() => {});
     }
 
     const block = d.action === "block";
