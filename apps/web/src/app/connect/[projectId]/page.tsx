@@ -67,20 +67,12 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   let memory = db.memory.find((m) => m.projectId === projectId);
   let linked = memory?.teammates ?? [];
   let inboxError: string | undefined;
-  let inboxEmpty = false;
   // The orchestrator only sees texts while it is awake. Ask it to read the inbox before deciding the step is still waiting.
   if (!linked.length) {
     const res = await proxyToOrchestrator("/photon/poll", {}).catch(() => undefined);
     const body = res ? await res.text() : "";
-    if (res?.ok) {
-      console.log(`[photon] poll ${body.slice(0, 500)}`);
-      try {
-        const parsed = JSON.parse(body) as { inbox?: number; handled?: number };
-        inboxEmpty = !parsed.handled && typeof parsed.inbox === "number";
-      } catch {
-        /* poll body was not JSON */
-      }
-    } else console.error(`[photon] poll ${res?.status ?? "down"} ${body.slice(0, 200)}`);
+    if (res?.ok) console.log(`[photon] poll ${body.slice(0, 500)}`);
+    else console.error(`[photon] poll ${res?.status ?? "down"} ${body.slice(0, 200)}`);
     if (!res?.ok) inboxError = inboxNote(res?.status ?? 503, body);
     db = await readStore();
     memory = db.memory.find((m) => m.projectId === projectId);
@@ -145,10 +137,6 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
                   {inboxError ? (
                     <p role="alert" className="mt-2 text-xs text-red-300">
                       {inboxError}
-                    </p>
-                  ) : inboxEmpty ? (
-                    <p role="status" className="mt-2 text-xs text-amber-200/90">
-                      iMessage delivered those texts, but Photon has not stored them on this line yet. Send START one more time and leave this page open.
                     </p>
                   ) : (
                     <p className="mt-2 text-xs text-slate-500">Antibody replies to confirm. Waiting for your text…</p>
