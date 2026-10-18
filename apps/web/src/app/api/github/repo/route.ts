@@ -1,9 +1,11 @@
 import { installationRepos, updateDb } from "@antibody/core";
 import { webUrl } from "@/lib/server";
-import { ownedProject } from "@/lib/auth";
+import { currentUser, ownedProject } from "@/lib/auth";
 
 /** Setup page form: choose which of the installation's repos belongs to this project. */
 export async function POST(request: Request) {
+  const user = await currentUser();
+  if (!user) return Response.json({ error: "Sign in first" }, { status: 401 });
   const form = await request.formData();
   const projectId = String(form.get("projectId") ?? "");
   const repo = String(form.get("repo") ?? "");
