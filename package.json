@@ -17,7 +17,7 @@
     "dev:guestlist": "npm run dev -w @antibody/guestlist",
     "dev:shielded": "npm run dev:protected -w @antibody/vuln-app",
     "dev:all": "node scripts/dev-all.mjs",
-    "eval": "node --import tsx evals/run.ts",
+    "eval": "node --env-file-if-exists=.env.local --import tsx evals/run.ts",
     "attack": "node --import tsx attacks/all.ts",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p evals",

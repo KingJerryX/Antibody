@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 const isSnapshot = (v: unknown): v is EvalSnapshot => Boolean(v && typeof v === "object" && "shield" in v);
 
-/** Latest scoreboard: a scan of the deployed sample, else the file from `npm run eval`, else the run that shipped. */
+/** Latest scoreboard: the run `npm run eval` published to the shared store, else its local file, else the run that shipped. */
 export async function GET() {
   await connection();
   if (hasRemoteStore()) {
@@ -32,9 +32,12 @@ export async function GET() {
   return Response.json({ empty: true });
 }
 
-/** Run the scoreboard against the deployed NoteNest. Same work as `npm run eval`. */
+/** Run the scoreboard against the local shielded sample. Same work as `npm run eval`, so it only works locally. */
 export async function POST() {
   await connection();
+  if (process.env.VERCEL) {
+    return Response.json({ error: "The eval attacks the local sample app. Run `npm run eval` on your machine; this page shows the latest run." }, { status: 400 });
+  }
   try {
     const snap = await runEval();
     if (hasRemoteStore()) await writeNamedRow("eval-snapshot", snap);

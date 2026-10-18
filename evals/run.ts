@@ -1,13 +1,13 @@
 // Antibody eval runner. Run: node --import tsx evals/run.ts
 //
-// Scores the deployed NoteNest (shield on), not the local sample ports.
-// Scans that origin and replays attack + normal traffic against it, then writes evals/results.json.
-// The production site runs the same function from POST /api/evals.
+// Scores the local sample app behind the shield (http://localhost:4001, `npm run dev:shielded`).
+// Scans that origin and replays attack + normal traffic against it, then writes evals/results.json,
+// and publishes the run to the shared store when Supabase is keyed so the deployed /evals page shows it.
 // Targets outside ANTIBODY_VERIFIED_DOMAINS are refused.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { EvalSnapshot, FindingKind, RequestCounts } from "@antibody/core";
+import { hasRemoteStore, writeNamedRow, type EvalSnapshot, type FindingKind, type RequestCounts } from "@antibody/core";
 import { scanUrl } from "@antibody/scanner";
 import { proveIdorFix } from "./fix-proof.ts";
 import { scoreScan, scoreShield } from "./metrics.ts";
@@ -15,10 +15,8 @@ import seededFile from "./seeded.json";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Deployed sample. The shield is on; this is the app the scoreboard measures. */
-export const PROD_ORIGIN = "https://notenest-henna.vercel.app";
-/** Unsigned project id the NoteNest shield posts blocks to. */
-const NOTE_NEST = "proj_notenest-henna-vercel-app";
+/** The sample app with the shield on; this is the app the scoreboard measures. */
+export const SHIELDED_ORIGIN = process.env.EVAL_TARGET ?? "http://localhost:4001";
 
 /** One .env.local at the repo root; read the one var we need rather than pull in a dep. */
 function verifiedFromEnv(): string[] {
@@ -67,29 +65,7 @@ function asCounts(v: unknown): RequestCounts | undefined {
   return { method, path, distinctUsers, spanS, routeRpm, failedLogins, loginAttempts, aiCalls };
 }
 
-/** The NoteNest shield has no events token, so the eval writes the block it just saw. */
-function reportSeen(status: number, source: string | undefined, counts: RequestCounts, detail: string) {
-  const token = process.env.ANTIBODY_ORCHESTRATOR_TOKEN?.trim();
-  if (!token) return;
-  const web = (process.env.ANTIBODY_WEB_URL ?? "https://antibody-ky3j.vercel.app").replace(/\/$/, "");
-  const event = {
-    projectId: NOTE_NEST,
-    type: "block",
-    title: `${status === 403 ? "Blocked" : "Challenged"} ${counts.method} ${counts.path}`,
-    detail,
-    source,
-    riskScore: status === 403 ? 1 : 0.8,
-    channel: "web",
-    counts,
-  };
-  fetch(`${web}/api/events`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(event),
-  }).catch(() => {});
-}
-
-/** Room between requests. A tight burst makes Vercel challenge the connection, and that 403 is not a shield decision. */
+/** Room between requests, so the windows the shield counts look like paced traffic rather than one burst. */
 const GAP_MS = 600;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -117,26 +93,12 @@ function paced(base: typeof fetch): typeof fetch {
 }
 
 const pacedFetch = paced(fetch);
-let waitedOutChallenge = false;
 
 async function one(url: string, init?: RequestInit): Promise<Hit> {
   const res = await pacedFetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
-  if (res.headers.get("x-vercel-mitigated")) {
-    if (!waitedOutChallenge) {
-      waitedOutChallenge = true;
-      await sleep(60_000);
-      return one(url, init);
-    }
-    throw new Error("Vercel security check blocked the eval before the shield. Wait a minute and run it again.");
-  }
   const source = res.headers.get("x-antibody-shield")?.match(/source=(chalk|local|fail_open)/)?.[1];
   const body = await res.json().catch(() => null);
-  const counts = asCounts(body?.counts);
-  if (counts && (res.status === 403 || res.status === 429)) {
-    const detail = Array.isArray(body?.reasons) ? body.reasons.map(String).join("; ") : "";
-    reportSeen(res.status, source, counts, detail);
-  }
-  return { status: res.status, source, counts };
+  return { status: res.status, source, counts: asCounts(body?.counts) };
 }
 
 async function hammer(origin: string, path: string, n: number, init?: RequestInit): Promise<Hit[]> {
@@ -199,8 +161,8 @@ async function liveShield(origin: string) {
   };
 }
 
-/** Scan the deployed app and replay the shield traffic. Throws if the host is not verified or not up. */
-export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
+/** Scan the shielded sample and replay the shield traffic. Throws if the host is not verified or not up. */
+export async function runEval(origin = SHIELDED_ORIGIN): Promise<EvalSnapshot> {
   const base = origin.replace(/\/$/, "");
   requireVerified(base);
   if (!(await isUp(base))) throw new Error(`${base} is not responding`);
@@ -234,10 +196,15 @@ const invoked = process.argv[1]?.replaceAll("\\", "/").endsWith("evals/run.ts");
 
 if (invoked) {
   runEval()
-    .then((results) => {
+    .then(async (results) => {
       const path = join(here, "results.json");
       writeFileSync(path, JSON.stringify(results, null, 2));
       console.log(`Wrote ${path} (mode: ${results.mode}, host: ${results.host}).`);
+      // The deployed /evals page reads this row first, so publish there too when the shared store is keyed.
+      if (hasRemoteStore()) {
+        await writeNamedRow("eval-snapshot", results);
+        console.log("Published the run to the shared store (the deployed /evals page).");
+      }
     })
     .catch((err) => {
       console.error(err instanceof Error ? err.message : err);

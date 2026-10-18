@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Instructions for coding agents (Droid and others) and humans working in this repo.
-Product context: Antibody is a security teammate for vibe-coded apps. Current state: `docs/STATUS.md`.
+Product context: Antibody is a security teammate for vibe-coded apps. How to run it and what each service does: `README.md`.
 
 ## Layout
 
@@ -24,7 +24,7 @@ Product context: Antibody is a security teammate for vibe-coded apps. Current st
 - **Mock mode:** every integration (Photon, Chalk, Factory, GitHub, ElevenLabs) must work without keys by falling back to a mock and saying so in the UI/logs. The app must run end to end with an empty `.env.local`.
 - **Sign-in screens are done.** `/login` and `/signup` (GitHub + Google buttons only). Do not rebuild them. GitHub OAuth contract: `apps/web/src/app/api/auth/GITHUB.md`. Google is `/api/auth/google` and uses cookie `ab_oauth_google`. Leave `SessionUser.id` a number.
 - **Safety:** scans that actively probe, and attack scripts, may only target hosts in `ANTIBODY_VERIFIED_DOMAINS`. Never target anything else.
-- **Fail open:** the shield must allow requests if Chalk is unreachable.
+- **Fail safe:** if Chalk is slow or unreachable, the shield's local engine decides with the same rules. The shield must never error or take the app down.
 - **Git:** don't commit or push unless a human asks. Cursor's `Co-authored-by` line is fine (we use Cursor for our track). No Claude co-author or "Generated with Claude Code" lines in commits or PRs.
 - **Next.js 16** has breaking changes vs older versions. Read `node_modules/next/dist/docs/` before writing Next code.
 - **Imports:** packages import each other as `@antibody/<name>`; relative TS imports use explicit `.ts` extensions.

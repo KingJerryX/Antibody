@@ -9,8 +9,8 @@ type Board = EvalSnapshot | { empty: true };
 
 const isSnapshot = (b: Board): b is EvalSnapshot => "shield" in b;
 
-/** The deployed sample the eval hits. Blocks from that shield land on this project. */
-const NOTE_NEST = "proj_notenest-henna-vercel-app";
+/** The shielded sample the eval hits (localhost:4001). Its shield reports blocks to this project. */
+const SAMPLE = "proj_localhost-4000";
 
 const BEATS = [
   { route: "GET /api/users/7", why: "One session reading other people's profiles" },
@@ -19,7 +19,7 @@ const BEATS = [
   { route: "GET /api/users/2", why: "The patch refuses the other profile" },
 ] as const;
 
-export function EvalView() {
+export function EvalView({ canRun }: { canRun: boolean }) {
   const { data, error, setData } = usePoll<Board>("/api/evals", 5000);
   const [running, setRunning] = useState(false);
   const [since, setSince] = useState(0);
@@ -48,20 +48,24 @@ export function EvalView() {
         </div>
         <h1 className="display">Shield eval</h1>
         <p className="live-lede">
-          Planted attacks should be blocked. Ordinary sessions, each making several requests, should not. A run counts as Chalk only when the blocked responses say so. This run scores the deployed NoteNest, not a local port.
+          Planted attacks should be blocked. Ordinary sessions, each making several requests, should not. A run counts as Chalk only when the blocked responses say so. It scores the sample app behind the shield.
         </p>
-        <p>
-          <button className="btn btn-sm" type="button" disabled={running} onClick={() => void run()}>
-            {running ? "Scoring NoteNest…" : "Run eval"}
-          </button>
-        </p>
+        {canRun ? (
+          <p>
+            <button className="btn btn-sm" type="button" disabled={running} onClick={() => void run()}>
+              {running ? "Scoring the sample app…" : "Run eval"}
+            </button>
+          </p>
+        ) : (
+          <p className="sub">This is the latest run. To run it again, start the shielded sample and run <code>npm run eval</code>.</p>
+        )}
         {running && <AttackPlay since={since} />}
         {runError && <p className="alert">{runError}</p>}
         {error && <p className="alert">Couldn&apos;t load the scoreboard: {error}</p>}
         {!data && !error && <p className="sub">Loading…</p>}
         {data && !isSnapshot(data) && (
           <p className="sub">
-            No published run yet. Run the eval to score the deployed NoteNest.
+            No published run yet. Start the shielded sample and run <code>npm run eval</code>.
           </p>
         )}
         {data && isSnapshot(data) && <Board snap={data} />}
@@ -72,7 +76,7 @@ export function EvalView() {
 
 /** Ordinary traffic passes the gate. The attack in flight stops in front of it, using a real block when one arrives. */
 function AttackPlay({ since }: { since: number }) {
-  const { data: events = [] } = usePoll<ActivityEvent[]>(`/api/activity?projectId=${encodeURIComponent(NOTE_NEST)}`, 2000);
+  const { data: events = [] } = usePoll<ActivityEvent[]>(`/api/activity?projectId=${encodeURIComponent(SAMPLE)}`, 2000);
   const [beat, setBeat] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setBeat((n) => n + 1), 2400);
@@ -85,7 +89,7 @@ function AttackPlay({ since }: { since: number }) {
   const why = latest?.detail || scripted.why;
   return (
     <div>
-      <p className="sub">Attacking notenest-henna.vercel.app</p>
+      <p className="sub">Attacking the sample app on localhost:4001</p>
       <div className="attack-lane" key={latest ? `${latest.id}-${beat}` : `beat-${beat}`} aria-hidden="true">
         <span className="gate" />
         <span className="ticket go">GET /</span>
@@ -135,7 +139,7 @@ function Board({ snap }: { snap: EvalSnapshot }) {
         {sessions} normal sessions, {s.normal} requests. First block after about {s.requestsBeforeBlock} requests. p95 {s.p95Ms} ms.
         {chalk + local > 0 && ` ${chalk} blocked response${chalk === 1 ? "" : "s"} from Chalk, ${local} from the on-device engine.`}
       </p>
-      <p className="sub">{snap.fixNote ?? "This run scores the deployed NoteNest."}</p>
+      <p className="sub">{snap.fixNote ?? "This run scores the sample app behind the shield."}</p>
     </>
   );
 }
