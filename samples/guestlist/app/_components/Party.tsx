@@ -3,10 +3,6 @@
 import { useState, type FormEvent } from "react";
 import type { Guest } from "@/lib/seed.ts";
 
-// VULN (secret in bundle): a Stripe secret hard-coded in CLIENT code. Anything in a "use client"
-// module ships in the JS bundle, so this key is readable via View Source. OBVIOUSLY FAKE.
-const STRIPE_SECRET_KEY = "sk_test_DEMOFAKEKEY000000000000";
-
 // VULN (RLS off): Supabase URL and anon key hard-coded client-side. The anon key is a JWT; with
 // row level security disabled it can read every guests row. Also ships in the bundle.
 const SUPABASE_URL = "http://localhost:4020/supabase";
@@ -63,7 +59,6 @@ export default function Party({ initialGuests }: { initialGuests: Guest[] }) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${STRIPE_SECRET_KEY}`,
         },
         body: JSON.stringify({ type: "checkout.session.completed", guestId: id }),
       });
