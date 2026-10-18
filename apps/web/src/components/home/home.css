@@ -1146,6 +1146,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 28px;
 }
@@ -1232,8 +1233,7 @@
 
 .ab .scan-summary { padding: 0; text-align: left; }
 
-.ab .report-links { display: flex; gap: 16px; flex-wrap: wrap; }
-.ab .report-links a { color: var(--lime); }
+.ab .report-links { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
 
 .ab .scan-summary .kicker { margin-bottom: 12px; }
 

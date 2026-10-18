@@ -57,9 +57,9 @@ export function LiveView({ startCode }: { startCode?: string }) {
             <span>Live</span>
           </nav>
           <span className="report-links">
-            {scanId && <Link href={`/report/${scanId}`}>Report</Link>}
-            <Link href="/evals">Eval</Link>
-            <Link href={`/connect/${projectId}`}>Set up alerts</Link>
+            {scanId && <Link className="btn btn-ghost btn-sm" href={`/report/${scanId}`}>Report</Link>}
+            <Link className="btn btn-ghost btn-sm" href="/evals">Eval</Link>
+            <Link className="btn btn-ghost btn-sm" href={`/connect/${projectId}`}>Set up alerts</Link>
           </span>
         </div>
 

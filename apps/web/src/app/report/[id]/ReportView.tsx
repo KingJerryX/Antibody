@@ -156,9 +156,9 @@ export function ReportView() {
           </nav>
           {scan.projectId ? (
             <span className="report-links">
-              <Link href={`/connect/${scan.projectId}`}>Set up alerts</Link>
-              <Link href={`/live/${scan.projectId}`}>Live view</Link>
-              <Link href="/evals">Eval</Link>
+              <Link className="btn btn-ghost btn-sm" href={`/connect/${scan.projectId}`}>Set up alerts</Link>
+              <Link className="btn btn-ghost btn-sm" href={`/live/${scan.projectId}`}>Live view</Link>
+              <Link className="btn btn-ghost btn-sm" href="/evals">Eval</Link>
             </span>
           ) : (
             <span className="report-links">

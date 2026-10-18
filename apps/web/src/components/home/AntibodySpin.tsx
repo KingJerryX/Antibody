@@ -7,6 +7,9 @@ import { bindScanTransition } from "./scanTransition";
 
 type Phase = "idle" | "play" | "hold" | "out";
 
+/** The mark gives way by this point, even if it never reports that it has finished growing. */
+const HANDOFF_MS = 3000;
+
 /** Full-screen antibody that spins and grows, covering the jump from a scan action to the report. */
 export function AntibodySpin() {
   return (
@@ -30,7 +33,7 @@ function SpinOverlay() {
     return bindScanTransition(async (job) => {
       const grown = new Promise<void>((resolve) => {
         grownRef.current = resolve;
-        setTimeout(resolve, 4000);
+        setTimeout(resolve, HANDOFF_MS);
       });
       setPhase("play");
       try {

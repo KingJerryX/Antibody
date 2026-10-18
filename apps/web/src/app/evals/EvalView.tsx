@@ -8,7 +8,7 @@ type Board = EvalSnapshot | { empty: true };
 
 const isSnapshot = (b: Board): b is EvalSnapshot => "shield" in b;
 
-export function EvalView() {
+export function EvalView({ production = false }: { production?: boolean }) {
   const { data, error } = usePoll<Board>("/api/evals", 5000);
 
   return (
@@ -24,21 +24,28 @@ export function EvalView() {
         <h1 className="display">Shield eval</h1>
         <p className="live-lede">
           Planted attacks should be blocked. Ordinary sessions, each making several requests, should not. A run counts as Chalk only when the blocked responses say so.
+          {production && " The same shield covers a production app."}
         </p>
         {error && <p className="alert">Couldn&apos;t load the scoreboard: {error}</p>}
         {!data && !error && <p className="sub">Loading…</p>}
         {data && !isSnapshot(data) && (
           <p className="sub">
-            No eval run yet. With the sample app on ports 4000 and 4001, run <code>npm run eval</code>.
+            {production ? (
+              "No published run on this deployment yet."
+            ) : (
+              <>
+                No eval run yet. With the sample app on ports 4000 and 4001, run <code>npm run eval</code>.
+              </>
+            )}
           </p>
         )}
-        {data && isSnapshot(data) && <Board snap={data} />}
+        {data && isSnapshot(data) && <Board snap={data} production={production} />}
       </div>
     </div>
   );
 }
 
-function Board({ snap }: { snap: EvalSnapshot }) {
+function Board({ snap, production }: { snap: EvalSnapshot; production: boolean }) {
   const s = snap.shield;
   const when = new Date(snap.generatedAt);
   const whenText = Number.isNaN(when.getTime()) ? snap.generatedAt : when.toLocaleString();
@@ -64,7 +71,11 @@ function Board({ snap }: { snap: EvalSnapshot }) {
         {sessions} normal sessions, {s.normal} requests. First block after about {s.requestsBeforeBlock} requests. p95 {s.p95Ms} ms.
         {chalk + local > 0 && ` ${chalk} blocked response${chalk === 1 ? "" : "s"} from Chalk, ${local} from the on-device engine.`}
       </p>
-      <p className="sub">This run scores the shield. Fix proposals are not part of it.</p>
+      <p className="sub">
+        {production
+          ? "This run scores the shield that covers production. Fix proposals are not part of it."
+          : "This run scores the shield. Fix proposals are not part of it."}
+      </p>
     </>
   );
 }

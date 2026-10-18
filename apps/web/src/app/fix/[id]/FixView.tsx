@@ -237,8 +237,8 @@ export function FixView() {
             <span>Fix</span>
           </nav>
           <span className="report-links">
-            {fix.scanId && <Link href={`/report/${fix.scanId}`}>Back to the report</Link>}
-            <Link href={`/live/${fix.projectId}`}>Live view</Link>
+            {fix.scanId && <Link className="btn btn-ghost btn-sm" href={`/report/${fix.scanId}`}>Back to the report</Link>}
+            <Link className="btn btn-ghost btn-sm" href={`/live/${fix.projectId}`}>Live view</Link>
           </span>
         </div>
 

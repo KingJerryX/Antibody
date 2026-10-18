@@ -71,15 +71,18 @@ export function Rings({ rings, size, from = 0, children }: { rings: Ring[]; size
 
 /** What the scanner does, for the label under the rings until the real check list is known. */
 const PHASES = ["Loading the page and its scripts", "Checking HTTPS and browser headers", "Looking for leaked keys", "Probing the database API", "Testing routes without a login", "Checking DNS and email"];
-/** Shortest time the progress plays, so a scan that finished instantly still reads as tests being run. */
-const MIN_RUN_MS = 2600;
-/** Pause at 100% before the results take over. */
-const HOLD_MS = 350;
+/** Progress, including the beat at 100%, before the results take over. */
+const PLAY_MS = 3000;
+/** How long 100% sits before the report replaces it. */
+const HOLD_MS = 400;
+/** Fill into 100% once the scan is done. Shorter when the scan already used the 3s. */
+const FILL_MS = 700;
 const SIZE = 300;
 
 /**
  * The scan in progress: one ring filling with a percentage in the middle.
- * While the scan runs, progress eases toward 90% without claiming more; once `done`, it springs to 100% and calls onFinished.
+ * While the scan runs, progress eases toward 90% without claiming more; once `done`, it fills to 100% and calls onFinished.
+ * A scan that is already done still plays for 3s, so the checks read as being run.
  */
 export function ScanProgress({ host, done, color, labels, onFinished }: { host: string; done: boolean; color: string; labels?: string[]; onFinished: () => void }) {
   const reduce = useReducedMotion();
@@ -101,15 +104,24 @@ export function ScanProgress({ host, done, color, labels, onFinished }: { host: 
   useEffect(() => {
     if (!done) return;
     let hold: ReturnType<typeof setTimeout>;
-    const wait = reduce ? 0 : Math.max(0, MIN_RUN_MS - (performance.now() - startedAt.current));
+    let settle: { stop: () => void } | undefined;
+    let cancelled = false;
+    const elapsed = performance.now() - startedAt.current;
+    const fill = reduce ? 0 : Math.max(280, Math.min(FILL_MS, PLAY_MS - HOLD_MS - elapsed));
+    const wait = reduce ? 0 : Math.max(0, PLAY_MS - HOLD_MS - fill - elapsed);
     const start = setTimeout(() => {
-      animate(progress, 1, {
-        ...(reduce ? { duration: 0 } : { type: "spring", stiffness: 60, damping: 16, restDelta: 0.0005 }),
-        onComplete: () => (hold = setTimeout(finish, reduce ? 0 : HOLD_MS)),
+      settle = animate(progress, 1, {
+        duration: reduce ? 0 : fill / 1000,
+        ease: [0.22, 1, 0.36, 1],
+        onComplete: () => {
+          if (!cancelled) hold = setTimeout(finish, reduce ? 0 : HOLD_MS);
+        },
       });
     }, wait);
     return () => {
+      cancelled = true;
       clearTimeout(start);
+      settle?.stop();
       clearTimeout(hold);
     };
   }, [done, progress, reduce]);
