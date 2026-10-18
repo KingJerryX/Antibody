@@ -206,20 +206,35 @@ const TIERS: [tier: CheckTier, label: string][] = [
   ["live", "Live checks on your API"],
   ["code", "Your code on GitHub"],
 ];
-const MARK: Record<ScanCheck["status"], string> = { pass: "✓", fail: "✗", not_run: "–" };
+const MARK: Record<ScanCheck["status"], string> = { pass: "✓", fail: "✗", not_run: "-" };
+const MARK_LABEL: Record<ScanCheck["status"], string> = { pass: "passed", fail: "failed", not_run: "unverified" };
+
+/** A dash, not a cross: the check was blocked or we could not verify it. */
+function unverified(c: ScanCheck) {
+  return c.status === "not_run" && /Page review did not run|DNSSEC check did not run|DMARC check did not run|homepage was a block/i.test(c.note ?? "");
+}
 
 /** Honest summary: how many checks passed, which failed, and what connecting GitHub would add. No score. */
 function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck[]; findings: Finding[]; projectId: string; canFix: boolean }) {
   const passed = checks.filter((c) => c.status === "pass");
   const failed = checks.filter((c) => c.status === "fail");
   const ran = passed.length + failed.length;
-  const waiting = checks.filter((c) => c.status === "not_run").length;
+  const blocked = checks.filter(unverified);
+  const waiting = checks.filter((c) => c.status === "not_run" && !unverified(c));
   // Say exactly what each waiting tier needs: signing in alone doesn't give repo access.
-  const missing = (tier: CheckTier) => checks.some((c) => c.tier === tier && c.status === "not_run");
+  const missing = (tier: CheckTier) => waiting.some((c) => c.tier === tier);
   const needs =
     [missing("code") && "install the Antibody GitHub App on your repo", missing("live") && "connect the Vercel project that hosts this site"].filter(Boolean).join(", and ") ||
     "see each check for why";
   const tone = failed.length === 0 ? "" : findings.some((f) => f.severity === "critical" || f.severity === "high") ? "bad" : "warn";
+  const summary = [
+    failed.length ? `${failed.length} failed.` : "None failed.",
+    blocked.length ? `${blocked.length} blocked or unverifiable.` : "",
+    waiting.length ? `${waiting.length} didn't run yet: ${needs}.` : "",
+    !blocked.length && !waiting.length ? "Every check ran." : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <aside className="score-card" aria-label="Checks">
       <p className="kicker">Checks passed</p>
@@ -227,11 +242,8 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
         {passed.length}
         {ran > 0 && <span className="figure-of">/{ran}</span>}
       </p>
-      <p className="status-line">
-        {failed.length ? `${failed.length} failed.` : "None failed."}{" "}
-        {waiting ? `${waiting} didn't run yet: ${needs}.` : "Every check ran."}
-      </p>
-      {waiting > 0 && (
+      <p className="status-line">{summary}</p>
+      {waiting.length > 0 && (
         <Link className="btn btn-lime check-cta" href={!projectId ? SIGN_IN : canFix ? "/api/vercel/connect" : `/connect/${projectId}`}>
           {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Connect Vercel for live checks" : "Install Antibody on your repo"}
         </Link>
@@ -250,8 +262,8 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
               </summary>
               <ul className="score-list">
                 {rows.map((c) => (
-                  <li key={c.id} className={`check-row ${c.status}`} title={c.note}>
-                    <span aria-label={c.status.replace("_", " ")}>{MARK[c.status]}</span> {c.label}
+                  <li key={c.id} className={`check-row ${c.status}`} title={c.note ?? (c.status === "not_run" ? "Blocked or unverifiable." : undefined)}>
+                    <span aria-label={MARK_LABEL[c.status]}>{MARK[c.status]}</span> {c.label}
                   </li>
                 ))}
               </ul>

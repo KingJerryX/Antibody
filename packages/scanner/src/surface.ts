@@ -63,7 +63,8 @@ export function inspectSurface(input: {
   issues.push(...clientIssues([...inlineScripts(input.html), ...input.appCode], https));
 
   const passed: string[] = [];
-  const headerGap = /Content-Security-Policy|frame-ancestors|X-Content-Type-Options|Strict-Transport/;
+  // CSP has its own row. This check is the other browser headers.
+  const headerGap = /frame-ancestors|X-Content-Type-Options|Strict-Transport/;
   if (!issues.some((i) => i.kind === "missing_security_headers" && headerGap.test(i.evidence))) {
     passed.push("security_headers");
   }

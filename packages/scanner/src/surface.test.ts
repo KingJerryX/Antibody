@@ -106,6 +106,7 @@ describe("inspectSurface", () => {
       headers,
     );
     expect(r.issues.map((i) => i.title)).toEqual(["Content Security Policy is not enforced"]);
+    expect(r.passed).toContain("security_headers");
   });
 
   it("flags URL data written into HTML and ignores vendor-free safe code", () => {

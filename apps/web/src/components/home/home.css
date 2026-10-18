@@ -1237,7 +1237,8 @@
 .ab .check-row.pass span { color: var(--lime); }
 .ab .check-row.fail { color: var(--ink); }
 .ab .check-row.fail span { color: var(--danger); }
-.ab .check-row.not_run { opacity: 0.7; }
+.ab .check-row.not_run { color: var(--muted); }
+.ab .check-row.not_run span { color: var(--muted); }
 
 .ab .scan-summary { padding: 0; text-align: left; }
 
