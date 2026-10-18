@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { keepUnsaved } from "@/lib/unsaved-scans";
 
 export function ScanForm() {
@@ -13,6 +13,15 @@ export function ScanForm() {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Whether one of your sites already has the GitHub App. Unknown until /api/auth/me answers, so the
+  // Connect GitHub button never flashes up for someone who's already connected.
+  const [github, setGithub] = useState<boolean>();
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((me: { github?: boolean }) => setGithub(me.github === true), () => setGithub(false));
+  }, []);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -69,7 +78,7 @@ export function ScanForm() {
           placeholder="http://localhost:4000"
           aria-describedby={error ? errorId : undefined}
         />
-        <a className="btn btn-ghost btn-sm" href="/api/github/connect">Connect GitHub</a>
+        {github === false && <a className="btn btn-ghost btn-sm" href="/api/github/connect">Connect GitHub</a>}
         <button className="btn btn-light btn-sm" type="submit" disabled={busy}>
           {busy ? "Scanning…" : "Scan"}
         </button>

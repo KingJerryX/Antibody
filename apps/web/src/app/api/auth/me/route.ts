@@ -1,6 +1,10 @@
+import { readDb } from "@antibody/core";
 import { currentUser, mockSignIn, oauthClient } from "@/lib/auth";
 
-/** For the header: who's signed in, and whether signing in is possible here. */
+/** For the header and scan form: who's signed in, whether signing in is possible here, and whether GitHub is connected. */
 export async function GET() {
-  return Response.json({ user: (await currentUser()) ?? null, signIn: oauthClient() ? "github" : mockSignIn() ? "mock" : "off" });
+  const user = await currentUser();
+  // Connected = one of your sites has the Antibody GitHub App installed on its repo.
+  const github = user ? (await readDb()).projects.some((p) => p.ownerId === user.id && p.githubInstallationId) : false;
+  return Response.json({ user: user ?? null, signIn: oauthClient() ? "github" : mockSignIn() ? "mock" : "off", github });
 }
