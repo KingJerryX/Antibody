@@ -74,6 +74,12 @@ export const oauthClient = () => {
   const secret = process.env["GITHUB_CLIENT_SECRET"]?.trim();
   return id && secret ? { id, secret } : undefined;
 };
+export const GOOGLE_OAUTH_COOKIE = "ab_oauth_google";
+export const googleClient = () => {
+  const id = process.env["GOOGLE_CLIENT_ID"]?.trim();
+  const secret = process.env["GOOGLE_CLIENT_SECRET"]?.trim();
+  return id && secret ? { id, secret } : undefined;
+};
 /** Without OAuth keys, local dev signs in as a labeled mock user (AGENTS.md mock rule). Deployed, never. */
 export const mockSignIn = () => !oauthClient() && !process.env.VERCEL;
 export const MOCK_USER: SessionUser = { id: 0, login: "local-dev", mock: true };
@@ -95,7 +101,7 @@ export const owns = (user: SessionUser | undefined, project: Project | undefined
 /** Send the browser to sign in, then back to exactly where it was going. */
 export function signInRedirect(request: Request): Response {
   const u = new URL(request.url);
-  return Response.redirect(new URL(`/api/auth/github?next=${encodeURIComponent(u.pathname + u.search)}`, u), 302);
+  return Response.redirect(new URL(`/login?next=${encodeURIComponent(u.pathname + u.search)}`, u), 302);
 }
 
 /** The project, only if the signed-in user owns it. Setup changes (GitHub, proof, phones) go through this. */

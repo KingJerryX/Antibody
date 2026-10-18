@@ -19,7 +19,7 @@ export default function Home() {
       <HomeMotion />
       <div className="wrap hero" id="scan">
         <div>
-          <h1>Security for the app you just shipped.</h1>
+          <h1>Security for <span className="accent">your production</span></h1>
           <p className="lede">Paste a URL. Antibody scans it, writes a fix you approve, blocks the live attack, and texts you.</p>
         </div>
         <ScanForm />

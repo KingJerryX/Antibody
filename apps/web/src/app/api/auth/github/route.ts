@@ -1,7 +1,9 @@
 import { MOCK_USER, OAUTH_COOKIE, cookie, mockSignIn, newState, oauthClient, safeNext, sessionCookie, sign } from "@/lib/auth";
 import { webUrl } from "@/lib/server";
 
-/** "Sign in with GitHub". ?next= is where to land afterwards (same-site paths only). */
+/** "Sign in with GitHub". ?next= is where to land afterwards (same-site paths only).
+ *  Login and signup already link here. Contract for whoever finishes this route: ../GITHUB.md */
+
 export async function GET(request: Request) {
   const next = safeNext(new URL(request.url).searchParams.get("next"));
   if (mockSignIn()) {

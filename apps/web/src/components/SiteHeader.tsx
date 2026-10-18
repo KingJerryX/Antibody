@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Mark } from "./Mark";
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // Who's signed in. "off" = sign-in not configured here, so the header doesn't offer it.
+  // Who's signed in. Null until /api/auth/me answers.
   const [me, setMe] = useState<{ user: { login: string; avatar?: string; mock?: boolean } | null; signIn: string } | null>(null);
 
   useEffect(() => {
@@ -20,58 +21,42 @@ export function SiteHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  const close = () => setOpen(false);
+  const account = me?.user ? (
+    <>
+      <span className="inline-flex items-center gap-2 px-3 py-1 text-[#e4e6e1]">
+        {me.user.avatar && <img src={me.user.avatar} alt="" width={22} height={22} className="rounded-full" />}
+        {me.user.login}{me.user.mock ? " (mock sign-in)" : ""}
+      </span>
+      <form action="/api/auth/logout" method="post">
+        <button className="rounded-full px-3 py-1 text-[#e4e6e1] hover:bg-white/5">Sign out</button>
+      </form>
+    </>
+  ) : me ? (
+    <>
+      <Link href="/login" className="inline-flex items-center rounded-full px-3 py-1 text-[#e4e6e1] hover:bg-white/5" onClick={close}>Log in</Link>
+      <Link href="/signup" className="inline-flex items-center rounded-full bg-[#e3e5e1] px-3 py-1 font-medium text-[#10120f] hover:bg-white" onClick={close}>Sign up</Link>
+    </>
+  ) : null;
+
   return (
     <header className={`sticky top-0 z-40 flex items-center justify-between gap-4 px-7 py-3.5 backdrop-blur-xl max-[860px]:px-4 ${scrolled ? "border-b border-white/10" : "border-b border-transparent"}`} style={{ background: "rgba(16, 18, 16, 0.72)" }}>
       <Link href="/" className="flex items-center gap-2.5 text-lg tracking-tight text-[#e4e6e1]" aria-label="Antibody home">
-        <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="y-face" x1="4" y1="2" x2="26" y2="30" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stopColor="#e9ffc8" />
-              <stop offset="0.42" stopColor="#8cf26a" />
-              <stop offset="1" stopColor="#2f8a2e" />
-            </linearGradient>
-            <linearGradient id="y-side" x1="16" y1="4" x2="20" y2="30" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stopColor="#1c6424" />
-              <stop offset="1" stopColor="#082810" />
-            </linearGradient>
-          </defs>
-          <g strokeLinecap="round" strokeLinejoin="round">
-            <g stroke="url(#y-side)" strokeWidth="6.1" transform="translate(0.85 1.25)">
-              <path d="M16 27.2 V15.2" />
-              <path d="M16 15.2 L6.4 5.2" />
-              <path d="M16 15.2 L25.6 5.2" />
-            </g>
-            <g stroke="url(#y-face)" strokeWidth="5.15">
-              <path d="M16 26.2 V14.6" />
-              <path d="M16 14.6 L6.6 4.6" />
-              <path d="M16 14.6 L25.4 4.6" />
-            </g>
-          </g>
-        </svg>
+        <Mark />
         Antibody
       </Link>
+      <nav id="nav" aria-label="Main" className={`${open ? "flex" : "max-[860px]:hidden"} min-[861px]:absolute min-[861px]:left-1/2 min-[861px]:top-1/2 min-[861px]:flex min-[861px]:-translate-x-1/2 min-[861px]:-translate-y-1/2 max-[860px]:absolute max-[860px]:left-0 max-[860px]:right-0 max-[860px]:top-full max-[860px]:flex-col max-[860px]:border-b max-[860px]:border-white/10 max-[860px]:bg-[#101210]/95 max-[860px]:px-4 max-[860px]:py-2 items-center gap-1 text-sm`}>
+        <Link href="/#scan-job" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Product</Link>
+        <Link href="/docs" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Docs</Link>
+        <Link href="/evals" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Evals</Link>
+        {me?.user ? <Link href="/sites" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Your sites</Link> : null}
+        <Link href="/#scan" className="ml-2 inline-flex items-center rounded-full bg-white px-3.5 py-2 text-sm text-[#141614] hover:bg-[#f3f4f0]" onClick={close}>Scan</Link>
+        <div className="mt-1 flex items-center gap-1 min-[861px]:hidden">{account}</div>
+      </nav>
+      <div className="hidden items-center gap-1 text-sm min-[861px]:flex">{account}</div>
       <button type="button" className="rounded-full px-3 py-2 text-sm text-[#9b9e96] min-[861px]:hidden" aria-expanded={open} aria-controls="nav" onClick={() => setOpen((v) => !v)}>
         Menu
       </button>
-      <nav id="nav" aria-label="Main" className={`${open ? "flex" : "max-[860px]:hidden"} min-[861px]:flex max-[860px]:absolute max-[860px]:left-0 max-[860px]:right-0 max-[860px]:top-full max-[860px]:flex-col max-[860px]:border-b max-[860px]:border-white/10 max-[860px]:bg-[#101210]/95 max-[860px]:px-4 max-[860px]:py-2 items-center gap-1 text-sm`}>
-        <Link href="/#scan-job" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Product</Link>
-        <Link href="/evals" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Evals</Link>
-        {me?.user ? (
-          <>
-            <Link href="/sites" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={() => setOpen(false)}>Your sites</Link>
-            <span className="ml-2 inline-flex items-center gap-2 text-[#9b9e96]">
-              {me.user.avatar && <img src={me.user.avatar} alt="" width={22} height={22} className="rounded-full" />}
-              {me.user.login}{me.user.mock ? " (mock sign-in)" : ""}
-            </span>
-            <form action="/api/auth/logout" method="post">
-              <button className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]">Sign out</button>
-            </form>
-          </>
-        ) : me && me.signIn !== "off" ? (
-          <a href="/api/auth/github?next=/sites" className="ml-2 inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-sm text-[#e4e6e1] hover:bg-white/10" onClick={() => setOpen(false)}>Sign in with GitHub</a>
-        ) : null}
-        <Link href="/#scan" className="ml-2 inline-flex items-center rounded-full bg-white px-3.5 py-2 text-sm text-[#141614] hover:bg-[#f3f4f0]" onClick={() => setOpen(false)}>Scan</Link>
-      </nav>
     </header>
   );
 }

@@ -75,7 +75,6 @@ export function ScanForm() {
         </button>
       </div>
       <p className="field-error" id={errorId} role="alert">{error}</p>
-      <p className="field-note">Free scan: only what any visitor&apos;s browser can see. Connect GitHub for the full check.</p>
     </form>
   );
 }
