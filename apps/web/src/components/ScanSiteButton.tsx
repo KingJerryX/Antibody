@@ -1,13 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 /** "Scan" on Your sites: same request as the home page form, for a site that's already set up. */
 export function ScanSiteButton({ url }: { url: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Same as the home form: back navigation restores this button still marked busy.
+  useLayoutEffect(() => {
+    setBusy(false);
+  }, []);
   async function scan() {
     setBusy(true);
     setError("");

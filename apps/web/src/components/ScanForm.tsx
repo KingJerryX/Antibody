@@ -31,6 +31,12 @@ export function ScanForm() {
     caretAfterPaste.current = null;
   }, [url]);
 
+  // Next keeps this page alive in a hidden Activity after the scan navigates away.
+  // Coming back restores `busy`, so the button would stay on "Scanning…" forever.
+  useLayoutEffect(() => {
+    setBusy(false);
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
