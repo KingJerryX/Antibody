@@ -103,10 +103,18 @@ export class DroidFixer implements Fixer {
       onProgress({ ...draft, checks: [] });
       // Antibody's own verification of the patched copy; Droid's claims about its own tests don't count.
       const settled: FixCheck[] = [];
-      const checks = await verifyFix(finding, cwd, linesChanged, files, (check) => {
-        settled.push(check);
-        onProgress({ checks: [...settled] });
-      });
+      const checks = await verifyFix(
+        finding,
+        cwd,
+        linesChanged,
+        files,
+        (check) => {
+          settled.push(check);
+          onProgress({ checks: [...settled] });
+        },
+        // A cloned repo brings none of its packages; the bundled sample resolves ours.
+        { install: Boolean(project && isGithubConnected(project)) },
+      );
       return { ...draft, checks };
     } finally {
       // Windows can hold file handles briefly after the dev server exits.

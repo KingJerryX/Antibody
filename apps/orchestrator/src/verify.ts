@@ -1,13 +1,14 @@
 // Antibody's own checks on a Droid fix: start the patched copy and re-attack it, compare its behavior
 // with the original app, and re-run Semgrep on the patched code. Droid's self-reported tests don't count.
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { readDb, repoRoot, type Finding, type FindingKind, type FixCheck, type ReplayedResponse } from "@antibody/core";
 import { auditCode, scanUrl } from "@antibody/scanner";
 
 const START_TIMEOUT_MS = 120_000;
+const INSTALL_TIMEOUT_MS = 8 * 60_000;
 /** Security fixes should be small; a bigger diff needs a human's closer look. */
 const MAX_DIFF_LINES = 120;
 /** Kinds the scanner proves with one unauthenticated GET, so re-sending that URL is the whole attack. */
@@ -22,13 +23,18 @@ export async function verifyFix(
   diffLines: number,
   filesChanged: string[],
   onCheck: (check: FixCheck) => void = () => {},
+  /** A fresh clone of the owner's repo: install its own dependencies before starting it. */
+  opts: { install?: boolean } = {},
 ): Promise<FixCheck[]> {
   const settle = (check: FixCheck) => (onCheck(check), check);
   const preview = settle({ name: "preview_replay", status: "skipped", detail: "No preview deployments in local mode." });
   const code = settle(await codeCheck(finding, fixedDir, diffLines, filesChanged));
+  // A monorepo keeps its site in a subfolder (apps/web): start the Next app the changed files belong to.
+  const appDir = locateApp(fixedDir, filesChanged);
   let app: App;
   try {
-    app = await startApp(fixedDir);
+    if (opts.install) await installDeps(fixedDir);
+    app = await startApp(appDir, fixedDir);
   } catch (err) {
     const detail = `The patched app didn't start: ${(err as Error).message}`;
     const exploit = settle({ name: "exploit_test", status: "fail", detail });
@@ -37,7 +43,7 @@ export async function verifyFix(
   }
   try {
     const exploit = settle(await exploitTest(finding, app.origin));
-    const behavior = settle(await behaviorTests(finding, fixedDir, app.origin));
+    const behavior = settle(await behaviorTests(finding, appDir, app.origin));
     return [exploit, behavior, preview, code];
   } finally {
     await app.stop();
@@ -121,9 +127,10 @@ async function originOf(finding: Finding): Promise<string | undefined> {
   return URL.parse(finding.location?.url ?? "")?.origin ?? (await readDb()).projects.find((p) => p.id === finding.projectId)?.url;
 }
 
-/** Static pages and GET route handlers under app/, with [params] filled in as 1. */
+/** Static pages and GET route handlers under app/ (or src/app/), with [params] filled in as 1. */
 function routesIn(dir: string): string[] {
-  const appDir = join(dir, "app");
+  const appDir = [join(dir, "app"), join(dir, "src", "app")].find((d) => existsSync(d));
+  if (!appDir) return [];
   const out = new Set<string>();
   for (const f of readdirSync(appDir, { recursive: true, encoding: "utf8" })) {
     const rel = f.replaceAll("\\", "/");
@@ -147,17 +154,74 @@ function freePort(): Promise<number> {
   });
 }
 
+/**
+ * The patched copy is the owner's code, so it gets none of Antibody's secrets (Supabase, Photon, Factory, the
+ * orchestrator token): only what node and npm need to run. No SHIELD either: test the code fix itself.
+ */
+function bareEnv(): NodeJS.ProcessEnv {
+  const keep = ["PATH", "Path", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "SystemRoot", "ComSpec", "APPDATA", "LOCALAPPDATA"];
+  const env: NodeJS.ProcessEnv = { NEXT_TELEMETRY_DISABLED: "1", NODE_ENV: "development" };
+  for (const k of keep) if (process.env[k]) env[k] = process.env[k];
+  return env;
+}
+
+/** The folder holding next.config.* that contains the most changed files; else the shallowest; else the root. */
+function locateApp(root: string, filesChanged: string[]): string {
+  const configs = readdirSync(root, { recursive: true, encoding: "utf8" })
+    .map((f) => f.replaceAll("\\", "/"))
+    .filter((f) => /(^|\/)next\.config\.(js|mjs|cjs|ts|mts)$/.test(f) && !/(^|\/)(node_modules|\.next)\//.test(f))
+    .map((f) => (f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ""));
+  if (!configs.length) return root;
+  const owns = (dir: string) => filesChanged.filter((f) => !dir || f.replaceAll("\\", "/").startsWith(`${dir}/`)).length;
+  const best = [...configs].sort((a, b) => owns(b) - owns(a) || a.split("/").length - b.split("/").length)[0];
+  return join(root, best);
+}
+
+/** A fresh clone has no node_modules. Install with the lockfile, and never run the repo's install scripts. */
+async function installDeps(root: string): Promise<void> {
+  if (existsSync(join(root, "node_modules")) || !existsSync(join(root, "package.json"))) return;
+  const npm = (args: string[]) =>
+    new Promise<void>((resolve, reject) => {
+      const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", [...args, "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], {
+        cwd: root,
+        env: bareEnv(),
+        shell: process.platform === "win32",
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let err = "";
+      child.stderr?.on("data", (d) => (err = (err + d).slice(-400)));
+      const timer = setTimeout(() => child.kill(), INSTALL_TIMEOUT_MS);
+      child.on("exit", (code) => (clearTimeout(timer), code === 0 ? resolve() : reject(new Error(`npm ${args[0]} failed: ${err.trim().split("\n").at(-1) ?? code}`))));
+    });
+  // A lockfile out of step with package.json makes `npm ci` refuse; plain install still works.
+  if (existsSync(join(root, "package-lock.json"))) await npm(["ci"]).catch(() => npm(["install"]));
+  else await npm(["install"]);
+}
+
+/** The repo's own Next if it has one (nearest node_modules from the app folder up to the copy's root), else ours. */
+function nextBin(appDir: string, root: string): string {
+  for (let dir = appDir; ; dir = dirname(dir)) {
+    const bin = join(dir, "node_modules/next/dist/bin/next");
+    if (existsSync(bin)) return bin;
+    if (!relative(root, dir) || dir === dirname(dir)) break;
+  }
+  return join(repoRoot(), "node_modules/next/dist/bin/next");
+}
+
 /** `next dev` on the patched copy, on a free localhost port. Resolves once it serves "/". */
-async function startApp(dir: string): Promise<App> {
+async function startApp(dir: string, root: string): Promise<App> {
   const port = await freePort();
-  const env = { ...process.env };
-  delete env.SHIELD; // test the code fix itself, not the shield in front of it
-  const child = spawn(process.execPath, [join(repoRoot(), "node_modules/next/dist/bin/next"), "dev", "-H", "127.0.0.1", "-p", String(port)], {
+  const child = spawn(process.execPath, [nextBin(dir, root), "dev", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: dir,
-    env,
-    stdio: "ignore",
+    env: bareEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
   });
+  // The last lines of output, so a failed start says why instead of just an exit code.
+  let output = "";
+  const keepTail = (d: Buffer) => (output = (output + d).slice(-600));
+  child.stdout?.on("data", keepTail);
+  child.stderr?.on("data", keepTail);
   // Resolves once the whole process tree is gone, so the caller can delete the folder it was using.
   const stop = () =>
     new Promise<void>((resolve) => {
@@ -168,7 +232,10 @@ async function startApp(dir: string): Promise<App> {
     });
   const origin = `http://127.0.0.1:${port}`;
   for (const deadline = Date.now() + START_TIMEOUT_MS; Date.now() < deadline; ) {
-    if (child.exitCode !== null) throw new Error(`next dev exited with code ${child.exitCode}`);
+    if (child.exitCode !== null) {
+      const why = output.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(0, 300);
+      throw new Error(`next dev exited with code ${child.exitCode}${why ? `: ${why}` : ""}`);
+    }
     if (await fetch(`${origin}/`, { signal: AbortSignal.timeout(30_000) }).then((r) => r.status < 500, () => false)) return { origin, stop };
     await new Promise((r) => setTimeout(r, 1000));
   }
