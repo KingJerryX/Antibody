@@ -1,6 +1,7 @@
 "use client";
 
 import type { ExploitReplay, FixCheck, FixCheckName, FixProposal, ReplayedResponse } from "@antibody/core";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -54,6 +55,54 @@ const PHASE_NOTE: Record<Phase, string> = {
   done: "Plain English first. The code is below if you want it.",
 };
 
+/** The Factory mark while Droid writes, then a drawn check once the draft is in. */
+function DroidStatus({ working }: { working: boolean }) {
+  const reduce = useReducedMotion() === true;
+  return (
+    <div className={working ? "droid-status working" : "droid-status done"} aria-hidden="true">
+      <AnimatePresence mode="wait" initial={false}>
+        {working ? (
+          <motion.span key="mark" className="droid-mark" exit={reduce ? undefined : { opacity: 0, transition: { duration: 0.18 } }} />
+        ) : (
+          <motion.svg
+            key="check"
+            className="droid-check"
+            viewBox="0 0 64 64"
+            initial={reduce ? false : { scale: 0.72, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 380, damping: 22 }}
+          >
+            <motion.circle
+              cx="32"
+              cy="32"
+              r="26"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              initial={{ pathLength: reduce ? 1 : 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: reduce ? 0 : 0.45, ease: "easeOut" }}
+            />
+            <motion.path
+              d="M19.5 33.2 28.2 42 45.5 23"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={{ pathLength: reduce ? 1 : 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: reduce ? 0 : 0.32, delay: reduce ? 0 : 0.28, ease: "easeOut" }}
+            />
+          </motion.svg>
+        )}
+      </AnimatePresence>
+      <p className="droid-caption">{working ? "Writing the fix" : "Fix written"}</p>
+    </div>
+  );
+}
+
 /** Skipped checks don't count either way; everything else must pass. */
 function verdict(fix: FixProposal, checks: FixCheck[], phase: Phase) {
   const counted = checks.filter((c) => c.status !== "skipped");
@@ -80,6 +129,24 @@ export function FixView() {
   // Written by Fix it on Vercel, where the next request may not see the file this one wrote.
   const cached = useSessionValue<FixProposal & { scanId?: string }>(`antibody-fix:${id}`);
   const fix = data ?? cached;
+  const writing = fix ? phaseOf(fix) === "writing" : false;
+  // The fix id we watched Droid write, so the check plays when that draft lands and stays for this visit.
+  const [watchedId, setWatchedId] = useState<string | null>(null);
+  // ?droid=1 plays the wait and the check on a finished fix, so the motion can be watched without a live run.
+  const [play, setPlay] = useState<"off" | "writing" | "done">("off");
+  useEffect(() => {
+    if (writing) setWatchedId(id);
+  }, [writing, id]);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("droid");
+    if (q !== "1" && q !== "writing") {
+      setPlay("off");
+      return;
+    }
+    setPlay("writing");
+    const timer = window.setTimeout(() => setPlay("done"), 4200);
+    return () => window.clearTimeout(timer);
+  }, [id]);
   useEffect(() => {
     if (fix) sessionStorage.setItem(`antibody-fix:${id}`, JSON.stringify(fix));
   }, [fix, id]);
@@ -95,6 +162,8 @@ export function FixView() {
   }
 
   const phase = phaseOf(fix);
+  const showWriting = play === "writing" || (play === "off" && phase === "writing");
+  const droidDone = play === "done" || (play === "off" && watchedId === id && phase !== "writing" && Boolean(fix.diff));
   const checks = CHECK_ORDER.map((name) => fix.checks.find((c) => c.name === name) ?? { name, status: "pending" as const, detail: "" });
   const replay = fix.checks.find((c) => c.name === "exploit_test")?.replay;
   const result = verdict(fix, checks, phase);
@@ -120,33 +189,34 @@ export function FixView() {
           </span>
         </div>
 
-        <div className="report">
-          <aside className="score-card" aria-label="Fix status">
-            <p className="kicker">Checks passed</p>
-            <p className={`figure ${result.tone}`}>{result.figure}</p>
-            <p className="status-line" aria-live="polite">{result.line}</p>
-            <div className="score-rows">
-              <div className="row">
-                <span>Status</span>
-                <b>{STATUS_LABEL[fix.status]}</b>
-              </div>
-              <div className="row">
-                <span>Written by</span>
-                <b>{fix.author === "droid" ? "Factory Droid" : "Mock fixer"}</b>
-              </div>
-              <div className="row">
-                <span>Confidence</span>
-                <b className="cap">{phase === "writing" ? "–" : fix.confidence}</b>
-              </div>
-              <div className="row">
-                <span>Lines changed</span>
-                <b>
-                  {fix.linesChanged} in {fix.filesChanged.length} file{fix.filesChanged.length === 1 ? "" : "s"}
-                </b>
-              </div>
+        <aside className="score-card" aria-label="Fix status">
+          <p className="kicker">{showWriting ? "Factory Droid" : "Checks passed"}</p>
+          {(showWriting || droidDone) && <DroidStatus working={showWriting} />}
+          {!showWriting && <p className={`figure ${result.tone}`}>{result.figure}</p>}
+          <p className="status-line" aria-live="polite">{play === "writing" ? PHASE_NOTE.writing : play === "done" ? "Droid finished writing the fix." : result.line}</p>
+          <div className="score-rows">
+            <div className="row">
+              <span>Status</span>
+              <b>{STATUS_LABEL[fix.status]}</b>
             </div>
-          </aside>
+            <div className="row">
+              <span>Written by</span>
+              <b>{fix.author === "droid" ? "Factory Droid" : "Mock fixer"}</b>
+            </div>
+            <div className="row">
+              <span>Confidence</span>
+              <b className="cap">{phase === "writing" ? "–" : fix.confidence}</b>
+            </div>
+            <div className="row">
+              <span>Lines changed</span>
+              <b>
+                {fix.linesChanged} in {fix.filesChanged.length} file{fix.filesChanged.length === 1 ? "" : "s"}
+              </b>
+            </div>
+          </div>
+        </aside>
 
+        <div className="report">
           <section className="scan-summary" aria-labelledby="fix-title">
             <p className="kicker">Proposed fix</p>
             <h1 id="fix-title">Review this fix</h1>

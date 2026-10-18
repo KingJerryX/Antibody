@@ -1154,22 +1154,14 @@
 
 .ab .report-top .host { margin-left: 4px; }
 
-.ab .report {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 56px;
-  align-items: start;
-}
+.ab .report { display: block; }
 
 .ab .score-card {
-  position: sticky;
-  top: 92px;
-  padding: 28px 24px 8px;
-  border-radius: 18px;
-  border: 1px solid rgba(127, 238, 100, 0.14);
-  background:
-    radial-gradient(280px 180px at 0% 0%, rgba(127, 238, 100, 0.16), transparent 62%),
-    #152018;
+  max-width: 420px;
+  margin-bottom: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
 .ab .score-card .kicker { margin-bottom: 18px; }
@@ -1417,13 +1409,34 @@
 }
 
 @media (max-width: 720px) {
-  .ab .report { grid-template-columns: 1fr; gap: 28px; }
-  .ab .score-card { position: static; }
   .ab .scan-summary h1 { font-size: 28px; }
 }
 
 /* Fix review. Same layout as the report; only checks, replay, revise and diff are new. */
 .ab .score-card .figure.ok { color: var(--lime); }
+
+.ab .droid-status { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: 2px 0 16px; }
+.ab .droid-mark {
+  display: block;
+  width: 112px;
+  height: 112px;
+  background: var(--ink);
+  -webkit-mask: url("/droid-mark.png") center / contain no-repeat;
+  mask: url("/droid-mark.png") center / contain no-repeat;
+  filter: drop-shadow(0 0 16px rgba(228, 230, 225, 0.22));
+}
+.ab .droid-status.working .droid-mark { animation: droid-spin 2.8s linear infinite; }
+@keyframes droid-spin { to { transform: rotate(360deg); } }
+.ab .droid-check {
+  display: block;
+  width: 84px;
+  height: 84px;
+  color: var(--lime);
+  overflow: visible;
+  filter: drop-shadow(0 0 14px rgba(127, 238, 100, 0.45));
+}
+.ab .droid-caption { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+.ab .droid-status.done .droid-caption { color: var(--lime); }
 
 .ab .cap { text-transform: capitalize; }
 
@@ -1612,6 +1625,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ab .handset-thread .text { animation: none; }
+  .ab .droid-status.working .droid-mark { animation: none; }
 }
 
 /* Report: activity rings, the scan in progress, and a single column of issues. */
