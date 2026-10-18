@@ -85,7 +85,6 @@ export function ScanForm() {
             const start = el.selectionStart ?? el.value.length;
             caretAfterPaste.current = start + e.clipboardData.getData("text").length;
           }}
-          placeholder="http://localhost:4000"
           aria-describedby={error ? errorId : undefined}
         />
         {github === false && <a className="btn btn-ghost btn-sm" href="/api/github/connect">Connect GitHub</a>}
