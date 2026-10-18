@@ -1,7 +1,7 @@
 // Server-only helpers (imports node fs via @antibody/core). Never import from a client component.
 import { connection } from "next/server";
 import { resolve } from "node:path";
-import { isGithubConnected, readDb, repoRoot, type Project } from "@antibody/core";
+import { installationForRepo, isGithubConnected, readDb, repoRoot, updateDb, type Project } from "@antibody/core";
 
 /**
  * Orchestrator base URL, with a trailing slash.
@@ -44,6 +44,21 @@ export function repoDirFor(host: string): string | undefined {
 export function canFixProject(project: Project | undefined): boolean {
   if (!project) return false;
   return isGithubConnected(project) || Boolean(repoDirFor(URL.parse(project.url)?.host ?? ""));
+}
+
+/**
+ * A site that knows its repo (from Vercel, or picked earlier) but has no GitHub install saved: look the install up and
+ * save it, so the code checks and fixes unlock as soon as the app is installed on that repo, wherever that happened.
+ */
+export async function linkInstallation(project: Project): Promise<Project> {
+  if (!project.repo || project.githubInstallationId) return project;
+  const id = await installationForRepo(project.repo).catch(() => undefined);
+  if (!id) return project;
+  await updateDb((db) => {
+    const p = db.projects.find((x) => x.id === project.id);
+    if (p && !p.githubInstallationId) p.githubInstallationId = id;
+  });
+  return { ...project, githubInstallationId: id };
 }
 
 /** connection() keeps store reads (a file or Supabase) out of build-time prerendering. */

@@ -106,6 +106,17 @@ export async function getInstallation(installationId: number): Promise<{ id: num
   return gh(`/app/installations/${installationId}`, appJwt(await requireApp()));
 }
 
+/**
+ * The Antibody app's installation that covers `owner/name`, or undefined if the repo's owner hasn't installed it
+ * there. Lets a site pick up an install made anywhere (github.com, another project's button), not only its own.
+ */
+export async function installationForRepo(repo: string): Promise<number | undefined> {
+  const app = await readGithubApp();
+  if (!app || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return undefined;
+  const res = await fetch(`${API}/repos/${repo}/installation`, { headers: ghHeaders(appJwt(app)) });
+  return res.ok ? ((await res.json()) as { id: number }).id : undefined;
+}
+
 /** Installation access token: acts on the repos the user granted, expires in an hour. */
 export async function installationToken(installationId: number): Promise<string> {
   const { token } = await gh<{ token: string }>(`/app/installations/${installationId}/access_tokens`, appJwt(await requireApp()), { method: "POST" });

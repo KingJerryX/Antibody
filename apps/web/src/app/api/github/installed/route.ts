@@ -21,14 +21,28 @@ export async function GET(request: Request) {
   const repos = await installationRepos(installationId);
   const only = repos.length === 1 ? repos[0].full_name : undefined;
 
-  const projectId = await updateDb((db) => {
+  const granted = new Set(repos.map((r) => r.full_name.toLowerCase()));
+  const attached = await updateDb((db) => {
+    let first: string | undefined;
     const p = state?.p ? db.projects.find((x) => x.id === state.p && x.ownerId === user.id) : undefined;
     if (p) {
       p.githubInstallationId = installationId;
-      // One repo granted: that's the project's repo. Several: the setup page asks which one.
-      p.repo = only ?? (repos.some((r) => r.full_name === p.repo) ? p.repo : undefined);
-      return p.id;
+      // Keep the repo the site already deploys from (Vercel) if granted; else one repo granted is the repo; else ask.
+      p.repo = p.repo && granted.has(p.repo.toLowerCase()) ? p.repo : only;
+      first = p.id;
     }
+    // The same install also covers this owner's other sites that deploy from the granted repos.
+    for (const x of db.projects) {
+      if (x.ownerId === user.id && x.repo && !x.githubInstallationId && granted.has(x.repo.toLowerCase())) {
+        x.githubInstallationId = installationId;
+        first ??= x.id;
+      }
+    }
+    return first;
+  });
+  if (attached) return Response.redirect(`${webUrl()}/connect/${attached}`, 302);
+
+  const projectId = await updateDb((db) => {
     // Installed with no project yet: start one for the repo; the first scan adds the site.
     const id = newId("proj");
     const login = installation.account.login;

@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
 import { auditGithubRepo, auditRepo, mergeFindings, scanChecks, scanUrl, type ReviewResult } from "@antibody/scanner";
-import { proxyToOrchestrator, repoDirFor, verifiedDomains } from "@/lib/server";
+import { linkInstallation, proxyToOrchestrator, repoDirFor, verifiedDomains } from "@/lib/server";
 import { currentUser, projectIdFor } from "@/lib/auth";
 
 /** Code review of the connected repo. Deployed, the orchestrator runs it: Vercel has neither git nor Semgrep. */
@@ -61,6 +61,9 @@ export async function POST(request: Request) {
       db.scans.push(scan);
       return p;
     });
+
+    // The repo is known (e.g. from Vercel) but its GitHub install may have happened elsewhere: pick it up now.
+    Object.assign(project, await linkInstallation(project));
 
     await logActivity({ projectId: project.id, type: "scan_started", title: `Scanning ${target.host}`, channel: "web", refId: scanId });
 

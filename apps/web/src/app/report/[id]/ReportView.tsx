@@ -206,6 +206,11 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
   const ran = checks.filter((c) => c.status !== "not_run");
   const failed = checks.filter((c) => c.status === "fail");
   const waiting = checks.length - ran.length;
+  // Say exactly what each waiting tier needs: signing in alone doesn't give repo access.
+  const missing = (tier: CheckTier) => checks.some((c) => c.tier === tier && c.status === "not_run");
+  const needs =
+    [missing("code") && "install the Antibody GitHub App on your repo", missing("live") && "connect the Vercel project that hosts this site"].filter(Boolean).join(", and ") ||
+    "see each check for why";
   const tone = failed.length === 0 ? "" : findings.some((f) => f.severity === "critical" || f.severity === "high") ? "bad" : "warn";
   return (
     <aside className="score-card" aria-label="Checks">
@@ -216,11 +221,11 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
       </p>
       <p className="status-line">
         {failed.length ? `${failed.length} failed.` : "None failed."}{" "}
-        {waiting ? `${waiting} didn't run yet: they need you to connect GitHub and Vercel.` : "Every check ran."}
+        {waiting ? `${waiting} didn't run yet: ${needs}.` : "Every check ran."}
       </p>
       {waiting > 0 && (
         <Link className="btn btn-lime check-cta" href={!projectId ? SIGN_IN : canFix ? "/api/vercel/connect" : `/connect/${projectId}`}>
-          {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Connect Vercel for live checks" : "Connect GitHub for the full check"}
+          {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Connect Vercel for live checks" : "Install Antibody on your repo"}
         </Link>
       )}
       <div className="score-rows">
@@ -388,7 +393,7 @@ function FindingBlock({ finding: f, offline, canFix, hideObserved }: { finding: 
         ) : (
           // No connected repo means no code to patch, so there is no fix to offer yet.
           <Link className="btn btn-lime" href={f.projectId ? `/connect/${f.projectId}` : SIGN_IN} title="Antibody only fixes code it can see">
-            {f.projectId ? "Connect GitHub to fix" : "Sign in with GitHub to fix"}
+            {f.projectId ? "Install Antibody on your repo to fix" : "Sign in with GitHub to fix"}
           </Link>
         )}
       </div>

@@ -2,10 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { connection } from "next/server";
-import { installationRepos, readGithubApp, startCodeFor, updateDb, type Project } from "@antibody/core";
+import { installationRepos, isGithubConnected, readGithubApp, startCodeFor, updateDb, type Project } from "@antibody/core";
 import { currentUser, owns, projectIdFor } from "@/lib/auth";
 import { Card, Icon } from "@/components/ui";
-import { proxyToOrchestrator, readStore } from "@/lib/server";
+import { linkInstallation, proxyToOrchestrator, readStore } from "@/lib/server";
 import { CopyButton, RefreshWhile } from "./ConnectClient";
 
 export const metadata = { title: "Set up | Antibody" };
@@ -59,6 +59,9 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
     return <SignInGate projectId={projectId} name={project.name} signedIn={Boolean(user)} />;
   }
 
+  // Installed on the repo from github.com or another site's button? Pick that install up.
+  Object.assign(project, await linkInstallation(project));
+
   // The START code proves a phone belongs to someone who can see this page (localhost only).
   const code = await startCodeFor(projectId);
   let memory = db.memory.find((m) => m.projectId === projectId);
@@ -88,7 +91,7 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   const registered = memory?.phoneLines ?? [];
   const search = await searchParams;
   const phoneError = search.phoneError?.slice(0, 300);
-  const steps = [Boolean(project.repo), project.verifiedDomain, linked.length > 0];
+  const steps = [isGithubConnected(project), project.verifiedDomain, linked.length > 0];
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-12">
@@ -106,7 +109,7 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
       <p className="mt-2 text-slate-400">{steps.filter(Boolean).length} of 3 done</p>
 
       <ol className="mt-8 space-y-4">
-        <Step done={Boolean(project.repo)} title="Connect GitHub">
+        <Step done={isGithubConnected(project)} title="Connect GitHub">
           <GithubStep projectId={projectId} repo={project.repo} installationId={project.githubInstallationId} />
         </Step>
 
@@ -189,6 +192,27 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
 }
 
 async function GithubStep({ projectId, repo, installationId }: { projectId: string; repo?: string; installationId?: number }) {
+  if (repo && !installationId) {
+    // Known from Vercel (or picked earlier), but Antibody can't read it until the app is installed there.
+    return (
+      <>
+        <p>
+          This site deploys from{" "}
+          <a href={`https://github.com/${repo}`} className="font-mono text-slate-200 hover:underline">
+            {repo}
+          </a>
+          . Install the Antibody GitHub App on it so Antibody can read the code and open fixes as pull requests. Signing in alone doesn&apos;t give
+          access to any repo.
+        </p>
+        <a
+          href={`/api/github/new?project=${encodeURIComponent(projectId)}`}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110"
+        >
+          Install on {repo}
+        </a>
+      </>
+    );
+  }
   if (repo) {
     return (
       <p>
@@ -229,12 +253,12 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
   const appReady = Boolean(await readGithubApp());
   return (
     <>
-      <p>Pick the repo with this site’s code. Antibody audits it and opens its fixes as pull requests you review. No install on your side.</p>
+      <p>Install the Antibody GitHub App on the repo with this site’s code. Antibody audits it and opens fixes as pull requests you review. Signing in alone doesn&apos;t give access to any repo.</p>
       <a
         href={`/api/github/new?project=${encodeURIComponent(projectId)}`}
         className="mt-4 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110"
       >
-        Connect GitHub
+        Install the GitHub App
       </a>
       {!appReady && (
         <p className="mt-2 text-xs text-slate-500">First time only: GitHub asks you to create the Antibody app, then which repos it can access.</p>
