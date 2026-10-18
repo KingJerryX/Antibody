@@ -208,11 +208,11 @@ const TIERS: [tier: CheckTier, label: string][] = [
 ];
 const MARK: Record<ScanCheck["status"], string> = { pass: "✓", fail: "✗", not_run: "–" };
 
-/** Honest summary: how many checks ran, which failed, and what connecting GitHub would add. No score. */
+/** Honest summary: how many checks passed, which failed, and what connecting GitHub would add. No score. */
 function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck[]; findings: Finding[]; projectId: string; canFix: boolean }) {
-  const ran = checks.filter((c) => c.status !== "not_run");
+  const passed = checks.filter((c) => c.status === "pass");
   const failed = checks.filter((c) => c.status === "fail");
-  const waiting = checks.length - ran.length;
+  const waiting = checks.filter((c) => c.status === "not_run").length;
   // Say exactly what each waiting tier needs: signing in alone doesn't give repo access.
   const missing = (tier: CheckTier) => checks.some((c) => c.tier === tier && c.status === "not_run");
   const needs =
@@ -221,9 +221,9 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
   const tone = failed.length === 0 ? "" : findings.some((f) => f.severity === "critical" || f.severity === "high") ? "bad" : "warn";
   return (
     <aside className="score-card" aria-label="Checks">
-      <p className="kicker">Checks run</p>
+      <p className="kicker">Checks passed</p>
       <p className={`figure ${tone}`}>
-        {ran.length}
+        {passed.length}
         <span className="figure-of">/{checks.length}</span>
       </p>
       <p className="status-line">
@@ -239,12 +239,13 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
         {TIERS.map(([tier, label]) => {
           const rows = checks.filter((c) => c.tier === tier);
           if (!rows.length) return null;
-          const run = rows.filter((c) => c.status !== "not_run").length;
+          const passedInTier = rows.filter((c) => c.status === "pass").length;
+          const ran = rows.some((c) => c.status !== "not_run");
           return (
             <details key={tier} open={tier === "passive" || rows.some((c) => c.status === "fail")}>
               <summary>
                 <span>{label}</span>
-                <b>{run ? `${run}/${rows.length}` : "not run"}</b>
+                <b>{ran ? `${passedInTier}/${rows.length}` : "not run"}</b>
               </summary>
               <ul className="score-list">
                 {rows.map((c) => (
