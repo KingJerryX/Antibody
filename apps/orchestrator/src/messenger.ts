@@ -21,7 +21,7 @@ export interface Messenger {
   registerSender(handle: string): Promise<string>;
   start(onInbound: InboundHandler): void;
   /** One inbox check. The setup page calls this because a Vercel process does not keep the timer alive while idle. */
-  pollOnce(): Promise<{ handled: number; error?: string; inbox?: number }>;
+  pollOnce(): Promise<{ handled: number; error?: string; inbox?: number; lines?: string }>;
   stop(): void;
 }
 
@@ -143,7 +143,7 @@ export class PhotonMessenger implements Messenger {
     this.timer = setInterval(() => void this.pollOnce(), 2000);
   }
 
-  pollOnce(): Promise<{ handled: number; error?: string; inbox?: number; notes?: string[] }> {
+  pollOnce(): Promise<{ handled: number; error?: string; inbox?: number; notes?: string[]; lines?: string }> {
     if (!this.inflight) this.inflight = this.poll().finally(() => { this.inflight = undefined; });
     return this.inflight;
   }
@@ -208,7 +208,7 @@ export class PhotonMessenger implements Messenger {
     await writeNamedRow(SEEN_ROW, { ids });
   }
 
-  private async poll(): Promise<{ handled: number; error?: string; inbox?: number; notes?: string[] }> {
+  private async poll(): Promise<{ handled: number; error?: string; inbox?: number; notes?: string[]; lines?: string }> {
     if (!this.inbound) return { handled: 0 };
     let handled = 0;
     const fresh: string[] = [];
@@ -234,6 +234,7 @@ export class PhotonMessenger implements Messenger {
       // Move the window only after paging finishes (a pageToken needs the same query). Inclusive bound; `seen` dedupes.
       this.since = newest;
       let inbox: number | undefined;
+      let lines: string | undefined;
       if (handled === 0) {
         // The platform filter can hide texts. Count the project inbox and read a short unfiltered sample.
         const week = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
@@ -247,13 +248,23 @@ export class PhotonMessenger implements Messenger {
         console.log(`[photon] inbox total=${inbox} week=${n(recent)} filtered=${filteredCount} sample=${sample.items.length}`);
         for (const raw of sample.items.slice(0, 5)) {
           const m = raw as unknown as PhotonMsg & { platform?: string };
-          console.log(`[photon] sample status=${m.status} platform=${m.platform ?? "?"} sentKind=${m.sentBy?.kind ?? "?"} spaceKind=${m.space?.kind ?? "?"} content=${m.content?.type ?? "?"}`);
+          console.log(`[photon] sample status=${m.status} platform=${m.platform ?? "?"} sentKind=${m.sentBy?.kind ?? "?"} spaceKind=${m.space?.kind ?? "?"} content=${m.content?.type ?? "?"} from=${maskHandle(m.sentBy?.handle ?? "")}`);
+        }
+        lines = "none";
+        try {
+          const { assignments } = await this.photon.projects.platforms.imessage.assignments.list({ path });
+          const active = assignments.filter((a) => !a.releasedAt);
+          lines = active.map((a) => `${maskHandle(a.handle)}->${maskHandle(a.assignedPhoneNumber)}`).join(", ") || "none";
+          console.log(`[photon] lines ${lines}`);
+        } catch (err) {
+          lines = "err";
+          console.log(`[photon] lines ERR ${err instanceof Error ? err.message.slice(0, 160) : err}`);
         }
         handled += await this.consume([...sample.items].reverse(), repliedStart, fresh);
       }
       if (fresh.length) await this.saveSeen();
       if (handled) console.log(`[photon] handled ${handled} inbound`);
-      return { handled, inbox, notes: this.notes };
+      return { handled, inbox, notes: this.notes, lines };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[photon] poll failed:", message.slice(0, 300));
