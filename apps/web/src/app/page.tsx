@@ -17,25 +17,28 @@ const SETS = 6;
 export default function Home() {
   return (
     <div className="ab">
-      <Aurora />
       <HomeMotion />
-      <div className="wrap hero" id="scan">
-        <div>
-          <h1>Security for <span className="accent">your production</span></h1>
-          <p className="lede">Paste a URL. Antibody scans it, writes a fix you approve, blocks the live attack, and texts you.</p>
+      {/* The aurora lives only in this top band, so the green stops at the partner bar. */}
+      <div className="home-top">
+        <Aurora />
+        <div className="wrap hero" id="scan">
+          <div>
+            <h1>Security for <span className="accent">your production</span></h1>
+            <p className="lede">Paste a URL. Antibody scans it, writes a fix you approve, blocks the live attack, and texts you.</p>
+          </div>
+          <ScanForm />
         </div>
-        <ScanForm />
-      </div>
-      <canvas className="mark" id="mark" aria-hidden="true" />
-      <div className="marquee" aria-label="Built on">
-        <div className="track" style={{ animationDuration: `${36 * SETS}s` }}>
-          {Array.from({ length: SETS * 2 }, (_, set) => (
-            <div className="set" key={set} aria-hidden={set >= SETS ? true : undefined}>
-              {NAMES.map(([n, r]) => (
-                <span key={n}>{n}<small>{r}</small></span>
-              ))}
-            </div>
-          ))}
+        <canvas className="mark" id="mark" aria-hidden="true" />
+        <div className="marquee" aria-label="Built on">
+          <div className="track" style={{ animationDuration: `${36 * SETS}s` }}>
+            {Array.from({ length: SETS * 2 }, (_, set) => (
+              <div className="set" key={set} aria-hidden={set >= SETS ? true : undefined}>
+                {NAMES.map(([n, r]) => (
+                  <span key={n}>{n}<small>{r}</small></span>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       <FeatureRow />

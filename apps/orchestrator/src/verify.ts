@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { dirname, join, relative } from "node:path";
+import { parseEnv } from "node:util";
 import { readDb, repoRoot, type Finding, type FindingKind, type FixCheck, type ReplayedResponse } from "@antibody/core";
 import { auditCode, scanUrl } from "@antibody/scanner";
 
@@ -33,7 +34,7 @@ export async function verifyFix(
   const appDir = locateApp(fixedDir, filesChanged);
   let app: App;
   try {
-    if (opts.install) await installDeps(fixedDir);
+    if (opts.install) await installDeps(fixedDir, appDir);
     app = await startApp(appDir, fixedDir);
   } catch (err) {
     const detail = `The patched app didn't start: ${(err as Error).message}`;
@@ -105,10 +106,15 @@ async function behaviorTests(finding: Finding, fixedDir: string, patched: string
   if (results.every((r) => r.before === 0)) {
     return { name: "behavior_tests", status: "skipped", detail: `The original app at ${original} isn't running, so there is nothing to compare against.` };
   }
-  const changed = results.filter((r) => r.before !== r.after);
+  // The copy runs on placeholder keys and no database, so a route that errors only there can't be compared.
+  const needsServices = results.filter((r) => r.after >= 500 && r.before > 0 && r.before < 500).map((r) => r.p);
+  const compared = results.filter((r) => !needsServices.includes(r.p));
+  const untested = needsServices.length ? ` Not compared, since they need the app's database or keys: ${needsServices.join(", ")}.` : "";
+  if (!compared.length) return { name: "behavior_tests", status: "skipped", detail: untested.trim() };
+  const changed = compared.filter((r) => r.before !== r.after);
   return changed.length
-    ? { name: "behavior_tests", status: "fail", detail: `Behavior changed: ${changed.map((r) => `${r.p} ${r.before} -> ${r.after}`).join(", ")}` }
-    : { name: "behavior_tests", status: "pass", detail: `${results.length} other pages and routes answer exactly as before (${paths.join(", ")}).` };
+    ? { name: "behavior_tests", status: "fail", detail: `Behavior changed: ${changed.map((r) => `${r.p} ${r.before} -> ${r.after}`).join(", ")}.${untested}` }
+    : { name: "behavior_tests", status: "pass", detail: `${compared.length} other pages and routes answer exactly as before (${compared.map((r) => r.p).join(", ")}).${untested}` };
 }
 
 /** Semgrep on the patched source must no longer flag the hole, and the diff must stay small. */
@@ -177,14 +183,34 @@ function locateApp(root: string, filesChanged: string[]): string {
   return join(root, best);
 }
 
-/** A fresh clone has no node_modules. Install with the lockfile, and never run the repo's install scripts. */
-async function installDeps(root: string): Promise<void> {
+/**
+ * Stand-ins for the variables the repo's .env.example lists, so an app that throws on a missing DATABASE_URL or
+ * API key still boots. Connection strings point at a closed local port: a query fails fast, nothing leaves the box.
+ */
+export function placeholderEnv(...dirs: string[]): NodeJS.ProcessEnv {
+  const example = dirs.flatMap((d) => [".env.example", ".env.sample", ".env.template"].map((n) => join(d, n))).find((p) => existsSync(p));
+  if (!example) return {};
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value = ""] of Object.entries(parseEnv(readFileSync(example, "utf8")))) {
+    const scheme = /^([a-z][\w+.-]*):\/\//i.exec(value)?.[1];
+    if (scheme && !/^https?$/i.test(scheme)) env[key] = `${scheme}://antibody:antibody@127.0.0.1:1/antibody`;
+    else if (!value || value.includes("<")) env[key] = "antibody-placeholder-0000000000000000";
+    else env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * A fresh clone has no node_modules. Install with the lockfile and no dependency install scripts, then run only the
+ * repo's own postinstall (e.g. `prisma generate`): next dev runs the repo's code anyway, with the same bare env.
+ */
+async function installDeps(root: string, appDir: string): Promise<void> {
   if (existsSync(join(root, "node_modules")) || !existsSync(join(root, "package.json"))) return;
-  const npm = (args: string[]) =>
+  const npm = (args: string[], cwd = root) =>
     new Promise<void>((resolve, reject) => {
-      const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", [...args, "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], {
-        cwd: root,
-        env: bareEnv(),
+      const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", [...args, "--no-audit", "--no-fund", "--loglevel=error"], {
+        cwd,
+        env: { ...placeholderEnv(appDir, root), ...bareEnv() },
         shell: process.platform === "win32",
         stdio: ["ignore", "ignore", "pipe"],
       });
@@ -194,8 +220,10 @@ async function installDeps(root: string): Promise<void> {
       child.on("exit", (code) => (clearTimeout(timer), code === 0 ? resolve() : reject(new Error(`npm ${args[0]} failed: ${err.trim().split("\n").at(-1) ?? code}`))));
     });
   // A lockfile out of step with package.json makes `npm ci` refuse; plain install still works.
-  if (existsSync(join(root, "package-lock.json"))) await npm(["ci"]).catch(() => npm(["install"]));
-  else await npm(["install"]);
+  if (existsSync(join(root, "package-lock.json"))) await npm(["ci", "--ignore-scripts"]).catch(() => npm(["install", "--ignore-scripts"]));
+  else await npm(["install", "--ignore-scripts"]);
+  // A failed codegen step shows up as a start failure below, with the app's own error.
+  for (const dir of new Set([root, appDir])) await npm(["run", "postinstall", "--if-present"], dir).catch(() => {});
 }
 
 /** The repo's own Next if it has one (nearest node_modules from the app folder up to the copy's root), else ours. */
@@ -213,7 +241,7 @@ async function startApp(dir: string, root: string): Promise<App> {
   const port = await freePort();
   const child = spawn(process.execPath, [nextBin(dir, root), "dev", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: dir,
-    env: bareEnv(),
+    env: { ...placeholderEnv(dir, root), ...bareEnv() },
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
   });
@@ -236,9 +264,13 @@ async function startApp(dir: string, root: string): Promise<App> {
       const why = output.trim().split("\n").filter(Boolean).slice(-2).join(" ").slice(0, 300);
       throw new Error(`next dev exited with code ${child.exitCode}${why ? `: ${why}` : ""}`);
     }
-    if (await fetch(`${origin}/`, { signal: AbortSignal.timeout(30_000) }).then((r) => r.status < 500, () => false)) return { origin, stop };
+    // manual: a signed-out redirect (to /login) means the server is up, whatever the login page needs.
+    if (await fetch(`${origin}/`, { redirect: "manual", signal: AbortSignal.timeout(30_000) }).then((r) => r.status < 500, () => false)) {
+      return { origin, stop };
+    }
     await new Promise((r) => setTimeout(r, 1000));
   }
   await stop();
-  throw new Error(`no response on ${origin} within ${START_TIMEOUT_MS / 1000}s`);
+  const why = output.match(/(?:Error|⨯)[^\n]*/g)?.at(-1)?.slice(0, 300);
+  throw new Error(`no response on ${origin} within ${START_TIMEOUT_MS / 1000}s${why ? `: ${why}` : ""}`);
 }
