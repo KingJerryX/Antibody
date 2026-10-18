@@ -1,6 +1,7 @@
 import { ScanForm } from "@/components/ScanForm";
 import { FeatureRow } from "@/components/home/FeatureRow";
 import { HomeMotion } from "@/components/home/HomeMotion";
+import { Aurora } from "@/components/home/Aurora";
 
 const NAMES: [string, string][] = [
   ["Photon", "iMessage and voice"],
@@ -16,6 +17,7 @@ const SETS = 6;
 export default function Home() {
   return (
     <div className="ab">
+      <Aurora />
       <HomeMotion />
       <div className="wrap hero" id="scan">
         <div>

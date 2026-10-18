@@ -1231,8 +1231,6 @@
 
 .ab .score-list li { color: var(--muted); font-size: 13px; }
 
-.ab .score-card .figure-of { font-size: 34px; color: var(--muted); letter-spacing: -0.02em; }
-.ab .score-card .check-cta { display: inline-flex; margin-top: 16px; }
 .ab .check-row span { display: inline-block; width: 1.1em; }
 .ab .check-row.pass span { color: var(--lime); }
 .ab .check-row.fail { color: var(--ink); }
@@ -1266,7 +1264,6 @@
 
 .ab .scan-summary { container-type: inline-size; }
 
-.ab .issue-board { margin-top: 28px; }
 
 .ab .sev-filters {
   display: flex;
@@ -1305,141 +1302,23 @@
 
 .ab .sev-filters button[aria-pressed="true"] .count { color: var(--ink); }
 
-.ab .issue-split {
-  display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
 
-.ab .issue-index {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: min(34rem, calc(100vh - 260px));
-  overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
 
-.ab .issue-index button {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  grid-template-areas: "sev name";
-  column-gap: 10px;
-  align-items: center;
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.ab .issue-index button:has(.issue-blurb) {
-  grid-template-areas: "sev name" "sev blurb";
-  row-gap: 2px;
-}
 
-.ab .issue-index button .sev-pill {
-  grid-area: sev;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 76px;
-  padding: 3px 6px;
-  font-size: 11px;
-}
 
-.ab .issue-index .issue-name {
-  grid-area: name;
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.35;
-}
 
-.ab .issue-index .issue-blurb {
-  grid-area: blurb;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Same bands GitHub and Snyk use: critical red, high orange, medium amber, low blue. The whole row carries the color. */
-.ab .issue-index button.critical { background: rgba(255, 109, 109, 0.22); border-color: rgba(255, 109, 109, 0.28); }
-.ab .issue-index button.high { background: rgba(255, 140, 70, 0.22); border-color: rgba(255, 140, 70, 0.3); }
-.ab .issue-index button.medium { background: rgba(255, 177, 90, 0.18); border-color: rgba(255, 177, 90, 0.3); }
-.ab .issue-index button.low { background: rgba(142, 182, 255, 0.16); border-color: rgba(142, 182, 255, 0.28); }
 
-.ab .issue-index button.critical:hover { background: rgba(255, 109, 109, 0.3); }
-.ab .issue-index button.high:hover { background: rgba(255, 140, 70, 0.3); }
-.ab .issue-index button.medium:hover { background: rgba(255, 177, 90, 0.26); }
-.ab .issue-index button.low:hover { background: rgba(142, 182, 255, 0.24); }
 
-.ab .issue-index button.critical[aria-selected="true"],
-.ab .issue-index button.critical[aria-selected="true"]:hover { background: rgba(255, 109, 109, 0.4); border-color: rgba(255, 180, 180, 0.85); }
-.ab .issue-index button.high[aria-selected="true"],
-.ab .issue-index button.high[aria-selected="true"]:hover { background: rgba(255, 140, 70, 0.4); border-color: rgba(255, 196, 150, 0.9); }
-.ab .issue-index button.medium[aria-selected="true"],
-.ab .issue-index button.medium[aria-selected="true"]:hover { background: rgba(255, 177, 90, 0.36); border-color: rgba(255, 214, 160, 0.9); }
-.ab .issue-index button.low[aria-selected="true"],
-.ab .issue-index button.low[aria-selected="true"]:hover { background: rgba(142, 182, 255, 0.32); border-color: rgba(190, 214, 255, 0.9); }
 
-.ab .issue-detail.critical { border-color: rgba(255, 109, 109, 0.45); background: rgba(255, 109, 109, 0.07); }
-.ab .issue-detail.high { border-color: rgba(255, 140, 70, 0.45); background: rgba(255, 140, 70, 0.07); }
-.ab .issue-detail.medium { border-color: rgba(255, 177, 90, 0.4); background: rgba(255, 177, 90, 0.06); }
-.ab .issue-detail.low { border-color: rgba(142, 182, 255, 0.4); background: rgba(142, 182, 255, 0.06); }
 
-.ab .issue-detail {
-  min-width: 0;
-  max-height: min(34rem, calc(100vh - 260px));
-  overflow: auto;
-  padding: 18px 20px 20px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.02);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
 
-.ab .issue-pos {
-  margin-bottom: 2px;
-  color: var(--faint);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 
-.ab .issue-detail .finding-block { margin-top: 0; }
 
-.ab .issue-detail .finding-row {
-  flex-wrap: wrap;
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
 
-.ab .issue-detail .finding-row .meta { white-space: normal; }
 
-@container (max-width: 720px) {
-  .ab .issue-split { grid-template-columns: 1fr; }
-  .ab .issue-index { max-height: 240px; }
-  .ab .issue-detail { max-height: none; }
-}
 
 .ab .finding-row {
   display: flex;
@@ -1734,3 +1613,224 @@
 @media (prefers-reduced-motion: reduce) {
   .ab .handset-thread .text { animation: none; }
 }
+
+/* Report: activity rings, the scan in progress, and a single column of issues. */
+.ab .rings { position: relative; flex: none; }
+.ab .rings svg { display: block; overflow: visible; }
+.ab .ring-track { fill: none; stroke: currentColor; opacity: 0.13; }
+.ab .ring-fill { fill: none; stroke: currentColor; stroke-linecap: round; filter: drop-shadow(0 0 6px currentColor); }
+.ab .rings-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.ab .rings-percent { font-size: 72px; font-weight: 500; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ab .rings-percent small { font-size: 0.42em; margin-left: 2px; color: var(--muted); }
+.ab .rings-count { font-size: 50px; font-weight: 500; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ab .rings-count small { font-size: 0.48em; color: var(--muted); letter-spacing: -0.02em; }
+.ab .rings-caption { margin-top: 6px; color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.ab .scan-run { display: flex; flex-direction: column; align-items: center; padding: 36px 0 64px; text-align: center; }
+.ab .scan-run .rings { margin-bottom: 34px; filter: drop-shadow(0 0 40px rgba(127, 238, 100, 0.12)); }
+.ab .scan-run .kicker { margin-bottom: 10px; }
+.ab .scan-run-step { margin-top: 12px; min-height: 1.5em; color: var(--muted); font-size: 15px; }
+
+.ab .report-stack { display: flex; flex-direction: column; gap: 18px; max-width: 920px; margin: 0 auto; }
+
+.ab .scan-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 44px;
+  align-items: center;
+  padding: 32px 36px;
+  border-radius: 22px;
+  border: 1px solid rgba(127, 238, 100, 0.14);
+  background: radial-gradient(420px 260px at 0% 0%, rgba(127, 238, 100, 0.12), transparent 62%), #141a15;
+}
+.ab .scan-hero h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.03em; }
+.ab .scan-hero .lede { margin-top: 10px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.ab .ring-legend { list-style: none; margin: 20px 0 0; padding: 0; max-width: 440px; }
+.ab .ring-legend li { display: grid; grid-template-columns: minmax(0, 1fr) 96px 56px; align-items: center; gap: 14px; padding: 10px 0; border-top: 1px solid rgba(255, 255, 255, 0.07); color: var(--muted); font-size: 14px; }
+.ab .tier-bar { height: 6px; border-radius: 3px; background: rgba(127, 238, 100, 0.12); overflow: hidden; }
+.ab .tier-bar i { display: block; height: 100%; border-radius: 3px; background: var(--lime); box-shadow: 0 0 10px rgba(127, 238, 100, 0.6); transform-origin: 0 50%; }
+.ab .ring-legend b { justify-self: end; color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.ab .unlock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 20px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(195, 166, 255, 0.32);
+  background: linear-gradient(120deg, rgba(195, 166, 255, 0.13), rgba(127, 238, 100, 0.05) 70%), var(--card);
+}
+.ab .unlock-count { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; border: 2px solid #c3a6ff; color: #e4d9ff; font-size: 18px; font-weight: 500; box-shadow: 0 0 22px rgba(195, 166, 255, 0.35); }
+.ab .unlock h2 { font-size: 17px; font-weight: 500; letter-spacing: 0; }
+.ab .unlock p { margin-top: 4px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+
+.ab .btn-install { gap: 10px; background: #fff; color: #141614; font-weight: 500; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35); white-space: nowrap; }
+.ab .btn-install:hover { background: #f1f2ee; }
+.ab .btn-install span { transition: transform 200ms var(--ease); }
+.ab .btn-install:hover span { transform: translateX(3px); }
+
+.ab .all-checks { border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.015); }
+.ab .all-checks summary { display: flex; align-items: center; gap: 10px; padding: 14px 20px; color: var(--muted); font-size: 14px; cursor: pointer; list-style: none; }
+.ab .all-checks summary::-webkit-details-marker { display: none; }
+.ab .all-checks summary::after { content: ""; width: 8px; height: 8px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform 200ms var(--ease); }
+.ab .all-checks[open] summary::after { transform: rotate(225deg); }
+.ab .all-checks summary:hover { color: var(--ink); }
+.ab .all-checks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 28px; padding: 4px 20px 18px; }
+.ab .all-checks h3 { display: flex; align-items: center; gap: 10px; margin: 8px 0 10px; color: var(--ink); font-size: 13px; font-weight: 500; letter-spacing: 0; }
+
+/* Both are <section>s and their ledes would otherwise pick up the home hero's centring and padding. */
+.ab .issues { margin-top: 18px; padding: 0; }
+.ab .scan-hero .lede, .ab .issues-head .lede { max-width: 60ch; margin-left: 0; margin-right: 0; }
+.ab .issues-head h2 { font-size: 24px; letter-spacing: -0.02em; }
+.ab .issues-head .lede { margin-top: 6px; color: var(--muted); font-size: 15px; }
+/* Issues: the team's list + detail layout, restored under the rings summary. */
+.ab .issues { container-type: inline-size; }
+.ab .issue-board { margin-top: 18px; }
+
+.ab .issue-split {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ab .issue-index {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(34rem, calc(100vh - 260px));
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.ab .issue-index button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-areas: "sev name";
+  column-gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ab .issue-index button:has(.issue-blurb) {
+  grid-template-areas: "sev name" "sev blurb";
+  row-gap: 2px;
+}
+
+.ab .issue-index button .sev-pill {
+  grid-area: sev;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 76px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.ab .issue-index .issue-name {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.ab .issue-index .issue-blurb {
+  grid-area: blurb;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Same bands GitHub and Snyk use: critical red, high orange, medium amber, low blue. The whole row carries the color. */
+.ab .issue-index button.critical { background: rgba(255, 109, 109, 0.22); border-color: rgba(255, 109, 109, 0.28); }
+.ab .issue-index button.high { background: rgba(255, 140, 70, 0.22); border-color: rgba(255, 140, 70, 0.3); }
+.ab .issue-index button.medium { background: rgba(255, 177, 90, 0.18); border-color: rgba(255, 177, 90, 0.3); }
+.ab .issue-index button.low { background: rgba(142, 182, 255, 0.16); border-color: rgba(142, 182, 255, 0.28); }
+
+.ab .issue-index button.critical:hover { background: rgba(255, 109, 109, 0.3); }
+.ab .issue-index button.high:hover { background: rgba(255, 140, 70, 0.3); }
+.ab .issue-index button.medium:hover { background: rgba(255, 177, 90, 0.26); }
+.ab .issue-index button.low:hover { background: rgba(142, 182, 255, 0.24); }
+
+.ab .issue-index button.critical[aria-selected="true"],
+.ab .issue-index button.critical[aria-selected="true"]:hover { background: rgba(255, 109, 109, 0.4); border-color: rgba(255, 180, 180, 0.85); }
+.ab .issue-index button.high[aria-selected="true"],
+.ab .issue-index button.high[aria-selected="true"]:hover { background: rgba(255, 140, 70, 0.4); border-color: rgba(255, 196, 150, 0.9); }
+.ab .issue-index button.medium[aria-selected="true"],
+.ab .issue-index button.medium[aria-selected="true"]:hover { background: rgba(255, 177, 90, 0.36); border-color: rgba(255, 214, 160, 0.9); }
+.ab .issue-index button.low[aria-selected="true"],
+.ab .issue-index button.low[aria-selected="true"]:hover { background: rgba(142, 182, 255, 0.32); border-color: rgba(190, 214, 255, 0.9); }
+
+.ab .issue-detail.critical { border-color: rgba(255, 109, 109, 0.45); background: rgba(255, 109, 109, 0.07); }
+.ab .issue-detail.high { border-color: rgba(255, 140, 70, 0.45); background: rgba(255, 140, 70, 0.07); }
+.ab .issue-detail.medium { border-color: rgba(255, 177, 90, 0.4); background: rgba(255, 177, 90, 0.06); }
+.ab .issue-detail.low { border-color: rgba(142, 182, 255, 0.4); background: rgba(142, 182, 255, 0.06); }
+
+.ab .issue-detail {
+  position: relative;
+  min-width: 0;
+  max-height: min(34rem, calc(100vh - 260px));
+  overflow: auto;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.ab .issue-pos {
+  margin-bottom: 2px;
+  color: var(--faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ab .issue-detail .finding-block { margin-top: 0; }
+
+.ab .issue-detail .finding-row {
+  flex-wrap: wrap;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ab .issue-detail .finding-row .meta { white-space: normal; }
+
+@container (max-width: 720px) {
+  .ab .issue-split { grid-template-columns: 1fr; }
+  .ab .issue-index { max-height: 240px; }
+  .ab .issue-detail { max-height: none; }
+}
+
+@media (max-width: 720px) {
+  .ab .scan-hero { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 26px 20px; }
+  .ab .ring-legend { margin-inline: auto; text-align: left; }
+  .ab .unlock { grid-template-columns: 1fr; justify-items: start; }
+}
+
+/* Home backdrop: drifting pools of green light behind everything (Aurora.tsx moves them). */
+.aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.aurora-pool { position: absolute; border-radius: 50%; filter: blur(40px); will-change: transform; }
