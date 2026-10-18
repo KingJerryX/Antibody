@@ -353,7 +353,7 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
 
     const block = d.action === "block";
     return Response.json(
-      { error: block ? "Blocked by Antibody shield" : "Slow down", reasons: d.reasons, riskScore: d.riskScore },
+      { error: block ? "Blocked by Antibody shield" : "Slow down", reasons: d.reasons, riskScore: d.riskScore, counts: requestCounts(d) },
       { status: block ? 403 : 429, headers: { "x-antibody-shield": `${d.action}; source=${d.source}`, ...(block ? {} : { "retry-after": "30" }) } },
     );
   };

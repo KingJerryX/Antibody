@@ -49,7 +49,45 @@ async function isUp(url: string): Promise<boolean> {
   }
 }
 
-type Hit = { status: number; source?: string };
+type Hit = { status: number; source?: string; counts?: RequestCounts };
+
+function asCounts(v: unknown): RequestCounts | undefined {
+  if (!v || typeof v !== "object") return;
+  const o = v as Record<string, unknown>;
+  const num = (k: string) => (typeof o[k] === "number" && Number.isFinite(o[k] as number) ? (o[k] as number) : undefined);
+  const method = typeof o.method === "string" ? o.method : "";
+  const path = typeof o.path === "string" ? o.path : "";
+  const distinctUsers = num("distinctUsers");
+  const spanS = num("spanS");
+  const routeRpm = num("routeRpm");
+  const failedLogins = num("failedLogins");
+  const loginAttempts = num("loginAttempts");
+  const aiCalls = num("aiCalls");
+  if (!method || !path || distinctUsers === undefined || spanS === undefined || routeRpm === undefined || failedLogins === undefined || loginAttempts === undefined || aiCalls === undefined) return;
+  return { method, path, distinctUsers, spanS, routeRpm, failedLogins, loginAttempts, aiCalls };
+}
+
+/** The NoteNest shield has no events token, so the eval writes the block it just saw. */
+function reportSeen(status: number, source: string | undefined, counts: RequestCounts, detail: string) {
+  const token = process.env.ANTIBODY_ORCHESTRATOR_TOKEN?.trim();
+  if (!token) return;
+  const web = (process.env.ANTIBODY_WEB_URL ?? "https://antibody-ky3j.vercel.app").replace(/\/$/, "");
+  const event = {
+    projectId: NOTE_NEST,
+    type: "block",
+    title: `${status === 403 ? "Blocked" : "Challenged"} ${counts.method} ${counts.path}`,
+    detail,
+    source,
+    riskScore: status === 403 ? 1 : 0.8,
+    channel: "web",
+    counts,
+  };
+  fetch(`${web}/api/events`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(event),
+  }).catch(() => {});
+}
 
 /** Room between requests. A tight burst makes Vercel challenge the connection, and that 403 is not a shield decision. */
 const GAP_MS = 600;
@@ -92,7 +130,13 @@ async function one(url: string, init?: RequestInit): Promise<Hit> {
     throw new Error("Vercel security check blocked the eval before the shield. Wait a minute and run it again.");
   }
   const source = res.headers.get("x-antibody-shield")?.match(/source=(chalk|local|fail_open)/)?.[1];
-  return { status: res.status, source };
+  const body = await res.json().catch(() => null);
+  const counts = asCounts(body?.counts);
+  if (counts && (res.status === 403 || res.status === 429)) {
+    const detail = Array.isArray(body?.reasons) ? body.reasons.map(String).join("; ") : "";
+    reportSeen(res.status, source, counts, detail);
+  }
+  return { status: res.status, source, counts };
 }
 
 async function hammer(origin: string, path: string, n: number, init?: RequestInit): Promise<Hit[]> {
@@ -141,7 +185,9 @@ async function liveShield(origin: string) {
   const scrape = await hammer(origin, "/supabase/rest/v1/users?i={i}", 40, { headers: attacker("203.0.113.9", { apikey: "anon-demo-key" }) });
   const attacks = [idor, chatFlood, scrape];
   const decisions = attacks.flat().filter((h) => h.source);
+  const idorCounts = [...idor].reverse().find((h) => h.counts?.path.includes("/api/users/"))?.counts ?? null;
   return {
+    idorCounts,
     ...scoreShield(
       attacks.map((h) => h.map((x) => x.status)),
       normalStatuses,
@@ -163,9 +209,8 @@ export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
   const report = await scanUrl(`${base}/`, { projectId: "eval", verifiedDomains, fetchImpl: pacedFetch });
   const kinds = report.findings.map((f) => f.kind);
   const scanner = scoreScan(seeded, kinds);
-  const started = Date.now();
-  const shield = await liveShield(base);
-  const proof = await proveIdorFix(() => idorCountsSince(started)).catch((err: unknown) => ({
+  const { idorCounts, ...shield } = await liveShield(base);
+  const proof = await proveIdorFix(async () => idorCounts).catch((err: unknown) => ({
     attempted: 1,
     passed: 0,
     note: err instanceof Error ? err.message : "Fix replay failed",
@@ -183,16 +228,6 @@ export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
     fixes: { attempted: proof.attempted, passed: proof.passed },
     fixNote: proof.note,
   };
-}
-
-/** The latest profile-walk block the shield reported during this run. */
-async function idorCountsSince(since: number): Promise<RequestCounts | null> {
-  const web = (process.env.ANTIBODY_WEB_URL ?? "https://antibody-ky3j.vercel.app").replace(/\/$/, "");
-  const res = await fetch(`${web}/api/activity?projectId=${encodeURIComponent(NOTE_NEST)}`);
-  if (!res.ok) return null;
-  const events = (await res.json()) as { type?: string; at?: string; counts?: RequestCounts }[];
-  const hit = events.filter((e) => e.type === "block" && e.counts?.path.includes("/api/users/") && Date.parse(e.at ?? "") >= since - 2_000).at(-1);
-  return hit?.counts ?? null;
 }
 
 const invoked = process.argv[1]?.replaceAll("\\", "/").endsWith("evals/run.ts");
