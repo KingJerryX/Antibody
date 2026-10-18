@@ -65,6 +65,36 @@ h1, h2, h3 { text-wrap: balance; font-optical-sizing: auto; }
 @keyframes ring-fill { from { stroke-dashoffset: var(--ring-empty); } }
 .ring-fill { animation: ring-fill 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/* Scan handoff: the particle antibody, alone, spinning and growing over the page. */
+.ab-spin {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: auto;
+}
+.ab-spin-veil {
+  position: absolute;
+  inset: 0;
+  background: #101210;
+  opacity: 0;
+  animation: ab-spin-veil 0.45s ease forwards;
+}
+.ab-spin canvas {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ab-spin.out {
+  opacity: 0;
+  transition: opacity 0.36s ease;
+  pointer-events: none;
+}
+.ab-spin.out .ab-spin-veil { animation: none; opacity: 1; }
+html.ab-spinning .mark { opacity: 0; }
+@keyframes ab-spin-veil { to { opacity: 1; } }
+
 /* Reduced motion keeps feedback, swaps movement for short cross-fades. */
 @media (prefers-reduced-motion: reduce) {
   @keyframes fade { from { opacity: 0; } }

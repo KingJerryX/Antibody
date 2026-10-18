@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
+import { AntibodySpin } from "@/components/home/AntibodySpin";
 import { SiteFrame } from "@/components/SiteFrame";
 import "@/components/home/home.css";
 import "./globals.css";
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to content
         </a>
         <SiteFrame>{children}</SiteFrame>
+        <AntibodySpin />
       </body>
     </html>
   );

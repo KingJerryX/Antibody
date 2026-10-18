@@ -39,16 +39,20 @@ function mulberry32(seed: number) {
   };
 }
 
-/** 3D particle antibody. Returns a cleanup. */
-export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => void {
+export type MarkMode = "hero" | "spin";
+
+/** 3D particle antibody. `spin` is the scan handoff: the body only, turning as it scales up. Returns a cleanup. */
+export function startMark(canvas: HTMLCanvasElement, reduce: boolean, mode: MarkMode = "hero", onGrown?: () => void): () => void {
   const context = canvas.getContext("2d");
   if (!context) return () => {};
   const ctx: CanvasRenderingContext2D = context;
   const rand = mulberry32(7);
   const dots: Dot[] = [];
   const start = performance.now();
+  const spin = mode === "spin";
   let raf = 0;
   let last = 0;
+  let grown = false;
   let aimX = 0, aimY = 0, lookX = 0, lookY = 0;
   const radius = 0.132;
   const depth = 0.22;
@@ -156,7 +160,7 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
   }
   const [ldx, ldy] = armDir(left[0], left[1]);
   const [rdx, rdy] = armDir(right[0], right[1]);
-  const visits: Visit[] = [
+  const visits: Visit[] = spin ? [] : [
     { tipX: left[0], tipY: left[1], dirX: ldx, dirY: ldy, period: 12, delay: 11.15, shapes: [makeBlob(41), makeBlob(88)] },
     { tipX: right[0], tipY: right[1], dirX: rdx, dirY: rdy, period: 14.4, delay: 11.2, shapes: [makeBlob(63), makeBlob(109)] },
   ];
@@ -208,15 +212,26 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     const t = (now - start) / 1000;
     const dt = Math.min(0.05, Math.max(0, (now - (last || now)) / 1000));
     last = now;
-    const gather = reduce ? 1 : Math.min(1, t / 1.15);
+    const gather = reduce || spin ? 1 : Math.min(1, t / 1.15);
     const ease = gather * gather * (3 - 2 * gather);
     const follow = 1 - Math.exp(-dt * 6);
     lookX += (aimX - lookX) * follow;
     lookY += (aimY - lookY) * follow;
-    const yaw = reduce ? 0.46 : 0.5 + Math.sin(t * 0.42) * 0.2 + lookX * 0.55;
-    const pitch = reduce ? -0.28 : -0.26 + Math.sin(t * 0.27) * 0.045 + lookY;
+    const growU = spin && !reduce ? Math.min(1, t / 1.7) : 1;
+    const growE = growU * growU * (3 - 2 * growU);
+    if (spin && !grown && (reduce || growU >= 1)) {
+      grown = true;
+      onGrown?.();
+    }
+    const model = spin && !reduce ? 0.7 + growE * 2.05 : 1;
+    const yaw = spin
+      ? 0.4 + t * (2.2 + growE * 3.2)
+      : reduce ? 0.46 : 0.5 + Math.sin(t * 0.42) * 0.2 + lookX * 0.55;
+    const pitch = spin
+      ? -0.22 + Math.sin(t * 0.45) * 0.04
+      : reduce ? -0.28 : -0.26 + Math.sin(t * 0.27) * 0.045 + lookY;
     const focal = 3.1;
-    const s = Math.min(w, h) * 0.4;
+    const s = Math.min(w, h) * 0.4 * model;
     const cx = w * 0.5, cy = h * 0.5;
     function project(d: Dot, x: number, y: number, z: number, nx: number, ny: number, nz: number) {
       const p3 = turn(x, y, z, yaw, pitch);
@@ -242,15 +257,15 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     const agT = reduce ? 2.4 : Math.max(0, t - 1.2);
     batch.length = 0;
     for (let i = 0; i < dots.length; i++) batch.push(dots[i]);
-    for (const visit of visits) {
+    if (!spin) for (const visit of visits) {
       const clock = agT + visit.delay;
       const pose = reduce
         ? { dist: 0.1, alpha: 1, scale: 1, slip: 0, flash: 0, bound: true }
         : antigenPose(clock % visit.period);
       if (!pose || pose.alpha < 0.02) continue;
       const shape = visit.shapes[Math.floor(clock / visit.period) % visit.shapes.length];
-      const spin = pose.bound ? Math.sin(agT * 0.7 + visit.delay) * 0.22 : clock * 0.85;
-      const cs = Math.cos(spin), sn = Math.sin(spin);
+      const agSpin = pose.bound ? Math.sin(agT * 0.7 + visit.delay) * 0.22 : clock * 0.85;
+      const cs = Math.cos(agSpin), sn = Math.sin(agSpin);
       const acrossX = -visit.dirY, acrossY = visit.dirX;
       for (const d of shape) {
         const across = d.y * cs - d.z * sn;
@@ -278,6 +293,7 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     const shadowW = Math.max(28, (maxX - minX) * 0.32);
     const shadowH = shadowW * 0.2;
     const shadeAmt = 0.2 + 0.8 * ease;
+    if (!spin) {
     ctx.save();
     ctx.translate((minX + maxX) / 2 + Math.sin(yaw) * 10, maxY + shadowH * 0.35);
     ctx.scale(1, shadowH / shadowW);
@@ -290,6 +306,7 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     ctx.arc(0, 0, shadowW, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+    }
     ctx.lineCap = "round";
     for (const d of batch) {
       const shade = Math.pow(d.lit, 0.8);
@@ -326,7 +343,7 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
         B = Math.min(255, B * tint + spec * 64);
       }
       const alpha = (0.78 + d.near * 0.22) * (0.3 + 0.7 * ease) * d.fade;
-      const rad = d.size * d.ps * (0.9 + d.near * 0.25);
+      const rad = d.size * d.ps * (0.9 + d.near * 0.25) * model;
       ctx.fillStyle = `rgb(${R | 0},${G | 0},${B | 0})`;
       ctx.strokeStyle = ctx.fillStyle;
       ctx.globalAlpha = alpha;
@@ -352,12 +369,12 @@ export function startMark(canvas: HTMLCanvasElement, reduce: boolean): () => voi
     aimY = (e.clientY / innerHeight - 0.5) * -0.28;
   }
   layout();
-  addEventListener("pointermove", onPointer);
+  if (!spin) addEventListener("pointermove", onPointer);
   addEventListener("resize", layout);
   raf = requestAnimationFrame(frame);
   return () => {
     cancelAnimationFrame(raf);
-    removeEventListener("pointermove", onPointer);
+    if (!spin) removeEventListener("pointermove", onPointer);
     removeEventListener("resize", layout);
   };
 }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { playScanTransition } from "@/components/home/scanTransition";
 import { keepUnsaved } from "@/lib/unsaved-scans";
 
 export function ScanForm() {
@@ -42,20 +43,23 @@ export function ScanForm() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
-      const text = await res.text();
-      let data: { error?: string; scanId?: string; report?: unknown; saved?: boolean } | null = null;
-      try {
-        data = text ? (JSON.parse(text) as { error?: string; scanId?: string; report?: unknown; saved?: boolean }) : null;
-      } catch {
-        throw new Error("Couldn't start the scan");
-      }
-      if (!res.ok || !data?.scanId) throw new Error(data?.error ?? "Couldn't start the scan");
-      // Signed out: the scan isn't saved, so it lives in this page only and a refresh forgets it.
-      if (data.saved === false) keepUnsaved(data.scanId, data.report);
-      // Signed in: saved, but keep a copy for this tab in case the next request misses the write.
-      else if (data.report) sessionStorage.setItem(`antibody-scan:${data.scanId}`, JSON.stringify(data.report));
-      router.push(`/report/${data.scanId}`);
+      const href = await playScanTransition(async () => {
+        const res = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+        const text = await res.text();
+        let data: { error?: string; scanId?: string; report?: unknown; saved?: boolean } | null = null;
+        try {
+          data = text ? (JSON.parse(text) as { error?: string; scanId?: string; report?: unknown; saved?: boolean }) : null;
+        } catch {
+          throw new Error("Couldn't start the scan");
+        }
+        if (!res.ok || !data?.scanId) throw new Error(data?.error ?? "Couldn't start the scan");
+        // Signed out: the scan isn't saved, so it lives in this page only and a refresh forgets it.
+        if (data.saved === false) keepUnsaved(data.scanId, data.report);
+        // Signed in: saved, but keep a copy for this tab in case the next request misses the write.
+        else if (data.report) sessionStorage.setItem(`antibody-scan:${data.scanId}`, JSON.stringify(data.report));
+        return `/report/${data.scanId}`;
+      });
+      router.push(href);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start the scan");
       setBusy(false);
