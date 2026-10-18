@@ -1,5 +1,4 @@
 // Decides per integration whether we talk to the real service or a mock: env keys, plus the GitHub App file.
-import { timingSafeEqual } from "node:crypto";
 import { githubAppOnDisk } from "@antibody/core";
 
 type IntegrationMode = "live" | "mock" | "disabled";
@@ -44,12 +43,7 @@ export function logIntegrations(): void {
   }
 }
 
-/** "Bearer <token>" check in constant time, so the response time doesn't leak how much of a guess was right. */
-export function bearerMatches(header: string | undefined, token: string): boolean {
-  const got = Buffer.from(header ?? "");
-  const want = Buffer.from(`Bearer ${token}`);
-  return got.length === want.length && timingSafeEqual(got, want);
-}
+export { bearerMatches } from "@antibody/core";
 
 /** Phone/email handles are personal data: show only the tail in logs and activity. */
 export const maskHandle = (h: string) => (h.length <= 4 ? h : `…${h.slice(-4)}`);

@@ -12,7 +12,7 @@ let adminLeak = "";
 const { ms } = await timed(async () => {
   for (let i = 1; i <= N; i++) {
     const res = await attackFetch(`${origin}/api/admin/stats`);
-    if (res.status === 403 || res.status === 429) {
+    if (res.status === 403) {
       blockedAt = i;
       break;
     }

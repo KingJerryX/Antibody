@@ -129,6 +129,7 @@ describe("createShield", () => {
   it("returns 403 on block, reports the event, and ignores static assets", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response("{}")));
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("ANTIBODY_ORCHESTRATOR_TOKEN", "t0k");
     const shield = createShield({ projectId: "demo" });
     const req = (path: string) =>
       new Request(`http://localhost:4001${path}`, { headers: { cookie: "theme=dark; session=abc123", "x-forwarded-for": "10.2.2.2" } });
@@ -140,8 +141,14 @@ describe("createShield", () => {
     expect(statuses.slice(0, 3)).toEqual([200, 200, 200]);
     expect(statuses.at(-1)).toBe(403);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1); // throttled: one event per actor per 10s
-    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    // Throttled to one event per actor per action per 10s: the escalation to a block is still reported.
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const titles = calls.map(([, init]) => JSON.parse(init.body as string).title as string);
+    expect(titles.filter((t) => t.startsWith("Blocked"))).toHaveLength(1);
+    expect(titles.length).toBeLessThanOrEqual(2);
+    const [, init] = calls.find(([, i]) => (JSON.parse(i.body as string).title as string).startsWith("Blocked"))!;
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer t0k");
+    const body = JSON.parse(init.body as string);
     expect(body).toMatchObject({ projectId: "demo", type: "block", channel: "web", source: "local" });
     expect(body.riskScore).toBeGreaterThan(0);
     expect(body.detail).not.toContain("abc123"); // session token never leaks
