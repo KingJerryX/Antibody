@@ -48,9 +48,44 @@ async function isUp(url: string): Promise<boolean> {
 
 type Hit = { status: number; source?: string };
 
+/** Room between requests. A tight burst makes Vercel challenge the connection, and that 403 is not a shield decision. */
+const GAP_MS = 600;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One in-flight request at a time, with a gap. Passed into the scan so its parallel probes queue up too. */
+let lastMs = 0;
+
+function paced(base: typeof fetch): typeof fetch {
+  let chain = Promise.resolve();
+  return (input, init) => {
+    const job = chain.then(async () => {
+      await sleep(GAP_MS);
+      const t0 = performance.now();
+      // The caller's abort timer started when the request was queued. Start a fresh one now.
+      const { signal: _drop, ...rest } = init ?? {};
+      const res = await base(input, { ...rest, signal: AbortSignal.timeout(10_000) });
+      lastMs = performance.now() - t0;
+      return res;
+    });
+    chain = job.then(
+      () => undefined,
+      () => undefined,
+    );
+    return job;
+  };
+}
+
+const pacedFetch = paced(fetch);
+let waitedOutChallenge = false;
+
 async function one(url: string, init?: RequestInit): Promise<Hit> {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
+  const res = await pacedFetch(url, { ...init, signal: AbortSignal.timeout(8_000) });
   if (res.headers.get("x-vercel-mitigated")) {
+    if (!waitedOutChallenge) {
+      waitedOutChallenge = true;
+      await sleep(60_000);
+      return one(url, init);
+    }
     throw new Error("Vercel security check blocked the eval before the shield. Wait a minute and run it again.");
   }
   const source = res.headers.get("x-antibody-shield")?.match(/source=(chalk|local|fail_open)/)?.[1];
@@ -86,9 +121,8 @@ async function liveShield(origin: string) {
       { path: "/supabase/rest/v1/notes", init: { method: "GET", headers: { apikey: "anon-demo-key" } } },
     ];
     for (const step of steps) {
-      const t0 = performance.now();
       const res = await one(`${origin}${step.path}`, { ...step.init, headers: { ...headers, ...step.init.headers } });
-      normalMs.push(performance.now() - t0);
+      normalMs.push(lastMs);
       normalStatuses.push(res.status);
     }
   }
@@ -121,8 +155,9 @@ export async function runEval(origin = PROD_ORIGIN): Promise<EvalSnapshot> {
   const base = origin.replace(/\/$/, "");
   requireVerified(base);
   if (!(await isUp(base))) throw new Error(`${base} is not responding`);
+  await one(`${base}/`);
   const seeded = seededFile.holes as FindingKind[];
-  const report = await scanUrl(`${base}/`, { projectId: "eval", verifiedDomains });
+  const report = await scanUrl(`${base}/`, { projectId: "eval", verifiedDomains, fetchImpl: pacedFetch });
   const kinds = report.findings.map((f) => f.kind);
   const scanner = scoreScan(seeded, kinds);
   const shield = await liveShield(base);
