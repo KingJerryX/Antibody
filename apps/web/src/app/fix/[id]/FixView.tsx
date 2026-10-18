@@ -55,6 +55,59 @@ const PHASE_NOTE: Record<Phase, string> = {
   done: "Plain English first. The code is below if you want it.",
 };
 
+/** What the status line types through while Droid is still writing. */
+const WRITING_LINES = [
+  "Reading the finding.",
+  "Opening a private copy of your app.",
+  "Looking through the code that causes it.",
+  "Writing the smallest change that closes it.",
+  "Leaving everything else alone.",
+];
+
+/** Types one status line, holds it, then moves to the next, until Droid finishes. */
+function WritingStream() {
+  const reduce = useReducedMotion() === true;
+  const [index, setIndex] = useState(0);
+  const [count, setCount] = useState(0);
+  const line = WRITING_LINES[index];
+
+  useEffect(() => {
+    if (reduce) {
+      const timer = window.setTimeout(() => setIndex((i) => (i + 1) % WRITING_LINES.length), 1800);
+      return () => window.clearTimeout(timer);
+    }
+    if (count < line.length) {
+      const timer = window.setTimeout(() => setCount((n) => n + 1), 28);
+      return () => window.clearTimeout(timer);
+    }
+    const timer = window.setTimeout(() => {
+      setIndex((i) => (i + 1) % WRITING_LINES.length);
+      setCount(0);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [count, index, line.length, reduce]);
+
+  const shown = reduce ? line : line.slice(0, count);
+  return (
+    <p className="status-line droid-stream">
+      <span className="droid-live" aria-live="polite">{line}</span>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={index}
+          className="droid-typed"
+          aria-hidden="true"
+          initial={reduce ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduce ? undefined : { opacity: 0, y: -8, transition: { duration: 0.16 } }}
+        >
+          {shown}
+          <span className="droid-caret" />
+        </motion.span>
+      </AnimatePresence>
+    </p>
+  );
+}
+
 /** The Factory mark while Droid writes, then a drawn check once the draft is in. */
 function DroidStatus({ working }: { working: boolean }) {
   const reduce = useReducedMotion() === true;
@@ -144,7 +197,7 @@ export function FixView() {
       return;
     }
     setPlay("writing");
-    const timer = window.setTimeout(() => setPlay("done"), 4200);
+    const timer = window.setTimeout(() => setPlay("done"), 14000);
     return () => window.clearTimeout(timer);
   }, [id]);
   useEffect(() => {
@@ -193,7 +246,7 @@ export function FixView() {
           <p className="kicker">{showWriting ? "Factory Droid" : "Checks passed"}</p>
           {(showWriting || droidDone) && <DroidStatus working={showWriting} />}
           {!showWriting && <p className={`figure ${result.tone}`}>{result.figure}</p>}
-          <p className="status-line" aria-live="polite">{play === "writing" ? PHASE_NOTE.writing : play === "done" ? "Droid finished writing the fix." : result.line}</p>
+          {showWriting ? <WritingStream /> : <p className="status-line" aria-live="polite">{play === "done" ? "Droid finished writing the fix." : result.line}</p>}
           <div className="score-rows">
             <div className="row">
               <span>Status</span>

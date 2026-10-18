@@ -1437,6 +1437,29 @@
 }
 .ab .droid-caption { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
 .ab .droid-status.done .droid-caption { color: var(--lime); }
+.ab .droid-stream { position: relative; min-height: 2.9em; }
+.ab .droid-typed { display: inline; }
+.ab .droid-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--ink);
+  vertical-align: text-bottom;
+  animation: droid-blink 1s steps(1) infinite;
+}
+.ab .droid-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes droid-blink { 50% { opacity: 0; } }
 
 .ab .cap { text-transform: capitalize; }
 
@@ -1625,7 +1648,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ab .handset-thread .text { animation: none; }
-  .ab .droid-status.working .droid-mark { animation: none; }
+  .ab .droid-status.working .droid-mark, .ab .droid-caret { animation: none; }
 }
 
 /* Report: activity rings, the scan in progress, and a single column of issues. */
