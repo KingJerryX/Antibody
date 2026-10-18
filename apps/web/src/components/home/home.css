@@ -1582,6 +1582,74 @@
 /* Live activity. Builds on the preview's .live-head, .ping, .stats and .event; adds the feed tags and phone. */
 .ab .live-lede { margin-top: 10px; color: var(--muted); font-size: 15px; }
 
+.ab .attack-lane {
+  position: relative;
+  height: 176px;
+  margin-top: 16px;
+  container-type: inline-size;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #141614;
+}
+.ab .attack-lane .gate {
+  position: absolute;
+  left: 58%;
+  top: 12px;
+  bottom: 34px;
+  width: 2px;
+  background: #b794f6;
+  box-shadow: 0 0 18px rgba(183, 148, 246, 0.55);
+}
+.ab .attack-lane .ticket {
+  position: absolute;
+  left: 16px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1a1c19;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #d5d8d0;
+  white-space: nowrap;
+}
+.ab .attack-lane .ticket.go { top: 16px; animation: lane-through 1.35s cubic-bezier(0.33, 0.05, 0.2, 1) forwards; }
+.ab .attack-lane .ticket.go.b { top: 54px; animation-delay: 0.18s; }
+.ab .attack-lane .ticket.halt {
+  top: 92px;
+  max-width: calc(58cqi - 46px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: lane-halt 1s cubic-bezier(0.33, 0.05, 0.2, 1) 0.28s forwards;
+}
+.ab .attack-lane .why {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 10px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes lane-through {
+  to { transform: translateX(78cqi); color: #c8f7bb; border-color: rgba(127, 238, 100, 0.45); }
+}
+@keyframes lane-halt {
+  to {
+    transform: translateX(calc(58cqi - 100% - 30px));
+    border-color: rgba(255, 109, 109, 0.8);
+    color: #ffb4b4;
+    background: rgba(255, 109, 109, 0.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ab .attack-lane .ticket.go { animation: none; transform: translateX(78cqi); color: #c8f7bb; border-color: rgba(127, 238, 100, 0.45); }
+  .ab .attack-lane .ticket.halt { animation: none; transform: translateX(calc(58cqi - 100% - 30px)); border-color: rgba(255, 109, 109, 0.8); color: #ffb4b4; background: rgba(255, 109, 109, 0.12); }
+}
+
 .ab a.stat:hover { border-color: rgba(255, 255, 255, 0.2); }
 .ab .stat b.warn { color: var(--warn); }
 .ab .stat b.info { color: var(--info); }

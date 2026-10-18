@@ -76,6 +76,7 @@ export function LiveView({ startCode }: { startCode?: string }) {
         </p>
 
         <div aria-live="assertive">{banner && <BlockedBanner key={banner.id} event={banner} onDone={() => setBanner(null)} />}</div>
+        {banner && <AttackLane key={banner.id} event={banner} />}
 
         <div className="stats">
           <Stat label="Attacks blocked" value={count("block")} tone="bad" />
@@ -109,6 +110,20 @@ export function LiveView({ startCode }: { startCode?: string }) {
           <Phone thread={thread} startCode={startCode} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Two ordinary requests pass the gate. The one that was just blocked stops in front of it. */
+function AttackLane({ event }: { event: ActivityEvent }) {
+  const route = event.title.replace(/^(Blocked|Challenged)\s+/, "");
+  return (
+    <div className="attack-lane" aria-hidden="true">
+      <span className="gate" />
+      <span className="ticket go">GET /</span>
+      <span className="ticket go b">GET /api/orders</span>
+      <span className="ticket halt">{route}</span>
+      {event.detail && <p className="why">{event.detail}</p>}
     </div>
   );
 }

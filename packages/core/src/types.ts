@@ -151,12 +151,14 @@ export interface ActivityEvent {
   riskScore?: number;
 }
 
-/** One eval run. Written by `evals/run.ts`, shown on /evals. */
+/** One eval run. Written by `evals/run.ts`, or by a scan of the deployed sample. Shown on /evals. */
 export interface EvalSnapshot {
   generatedAt: string;
   /** live = blocked responses came back from Chalk. mock = the local engine decided. */
   mode: "mock" | "live";
   target: "sample-app" | "local-engine";
+  /** Set when this board was refreshed by scanning the deployed sample. */
+  host?: string;
   scanner: { seeded: number; found: number; falseAlarms: number };
   shield: {
     attacks: number;

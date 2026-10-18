@@ -10,7 +10,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@antibody/core", "@antibody/shield"],
   // Shielded copy (port 4001, SHIELD=on) gets its own build dir so two dev servers from this one
   // project folder don't collide on .next/dev/lock ("Another next dev server is already running").
-  distDir: process.env.SHIELD === "on" ? ".next-shielded" : ".next",
+  // Vercel must keep the default .next output, including when SHIELD=on is set for the deploy.
+  distDir: process.env.SHIELD === "on" && !process.env.VERCEL ? ".next-shielded" : ".next",
   // Keep the dev-only Next.js badge from covering the app UI during demos.
   devIndicators: false,
 };
