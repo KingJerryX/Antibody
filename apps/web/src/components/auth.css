@@ -1,3 +1,7 @@
+/* Log in and sign up are full-screen: no site header or footer around them (SiteFrame stays a server component). */
+body:has(.auth) > header,
+body:has(.auth) > footer { display: none; }
+
 .auth {
   min-height: 100dvh;
   display: grid;
