@@ -61,20 +61,43 @@ async function exploitTest(finding: Finding, patched: string): Promise<FixCheck>
   const report = await scanUrl(`${patched}/`, { projectId: finding.projectId, verifiedDomains: [new URL(patched).host] });
   if (report.status === "error") return { name: "exploit_test", status: "fail", detail: `Couldn't re-run the probe: ${report.error}` };
   const still = report.findings.find((f) => f.kind === finding.kind && URL.parse(f.location?.url ?? "")?.pathname === path);
-  const check: FixCheck = still
-    ? { name: "exploit_test", status: "fail", detail: `The same probe still works on the patched app: ${still.evidence}` }
-    : { name: "exploit_test", status: "pass", detail: `Before: ${finding.evidence.split("\n")[0]} After: the same probe against the patched app no longer exposes ${path}.` };
-  const original = await verifiedOrigin(finding);
-  if (!original || !REPLAYABLE.includes(finding.kind)) return check;
   const { pathname, search } = new URL(finding.location!.url!);
-  const [before, after] = await Promise.all([replay(original + pathname + search), replay(patched + pathname + search)]);
-  return { ...check, replay: { request: `GET ${pathname}${search}`, before, after } };
+  const request = pathname + search;
+  // The scanner only sees "no data", which a crash or an empty 200 also gives, so a one-GET probe must be
+  // refused on purpose. data_leak paths with a dot are the exposed-file probes (/.env, /.git/HEAD).
+  const reprobe = REPLAYABLE.includes(finding.kind) || (finding.kind === "data_leak" && pathname.includes("."));
+  const after = reprobe ? await replay(patched + request) : undefined;
+  const was = `Before: ${finding.evidence.split("\n")[0]}`;
+  let check: FixCheck;
+  if (still) {
+    check = { name: "exploit_test", status: "fail", detail: `The same probe still works on the patched app: ${still.evidence}` };
+  } else if (!after) {
+    check = { name: "exploit_test", status: "pass", detail: `${was} After: the same probe against the patched app no longer exposes ${path}.` };
+  } else if (deliberateRefusal(after.status, after.location)) {
+    check = { name: "exploit_test", status: "pass", detail: `${was} After: the patched app refuses ${path} (${after.status}).` };
+  } else {
+    const answer = after.status === 0 || after.status >= 500
+      ? `errored (${after.status || "no response"}) on ${path}`
+      : `answered ${after.status}${after.location ? ` to ${after.location}` : ""} on ${path} instead of refusing it`;
+    check = { name: "exploit_test", status: "skipped", detail: `The patched app ${answer}, so the re-test couldn't tell whether the hole is closed.` };
+  }
+  // Never replay an exposed file: its body is the secret.
+  const original = after && REPLAYABLE.includes(finding.kind) ? await verifiedOrigin(finding) : undefined;
+  if (!original || !after) return check;
+  return { ...check, replay: { request: `GET ${request}`, before: await replay(original + request), after } };
 }
 
-async function replay(url: string): Promise<ReplayedResponse> {
+/** 401/403/404, or a redirect to a sign-in page: the app turned the request away on purpose. */
+export function deliberateRefusal(status: number, location?: string): boolean {
+  if ([401, 403, 404].includes(status)) return true;
+  const to = status >= 300 && status < 400 && location ? URL.parse(location, "http://x") : null;
+  return !!to && /\b(log|sign)[-_]?in\b|\bauth\b/i.test(to.pathname);
+}
+
+async function replay(url: string): Promise<ReplayedResponse & { location?: string }> {
   try {
     const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
-    return { status: res.status, body: (await res.text()).slice(0, 400) };
+    return { status: res.status, body: (await res.text()).slice(0, 400), location: res.headers.get("location") ?? undefined };
   } catch (err) {
     return { status: 0, body: (err as Error).message };
   }

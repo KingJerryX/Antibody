@@ -358,12 +358,14 @@ function AttackReplay({ replay }: { replay: ExploitReplay }) {
 
 function ReplayPane({ label, response }: { label: string; response: ReplayedResponse }) {
   const exposed = response.status >= 200 && response.status < 300;
+  // A crash hides the data without refusing anyone, so it is not "blocked".
+  const errored = response.status === 0 || response.status >= 500;
   return (
-    <figure className={`replay-pane ${exposed ? "exposed" : "blocked"}`}>
+    <figure className={`replay-pane ${exposed ? "exposed" : errored ? "" : "blocked"}`}>
       <figcaption>
         <span>{label}</span>
-        <span className={`check-pill ${exposed ? "fail" : "pass"}`}>
-          {response.status || "No response"} · {exposed ? "data exposed" : "blocked"}
+        <span className={`check-pill ${exposed ? "fail" : errored ? "skipped" : "pass"}`}>
+          {response.status || "No response"} · {exposed ? "data exposed" : errored ? "errored" : "blocked"}
         </span>
       </figcaption>
       <pre>{response.body || "(empty body)"}</pre>
