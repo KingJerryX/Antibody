@@ -54,6 +54,8 @@ export function scanChecks(report: ScanReport, audit: ReviewResult | undefined):
     if ((id === "dnssec" || id === "dmarc") && !dnsApplies(hostname)) {
       return [row("passive", r, "pass", "Local or IP address, so DNS records aren't expected.")];
     }
+    const pageSkip = report.skipped?.find((s) => s.startsWith("Page review did not run"));
+    if (pageSkip && id !== "dnssec" && id !== "dmarc") return [row("passive", r, "not_run", pageSkip)];
     const dnsSkip = id === "dnssec" || id === "dmarc" ? report.skipped?.find((s) => s.startsWith(id === "dnssec" ? "DNSSEC check" : "DMARC check")) : undefined;
     if (dnsSkip) return [row("passive", r, "not_run", dnsSkip)];
     return [row("passive", r, passed.has(id) ? "pass" : "fail")];
@@ -61,8 +63,9 @@ export function scanChecks(report: ScanReport, audit: ReviewResult | undefined):
 
   const ran = liveChecksRan(report);
   const supabaseSkip = report.skipped?.find((s) => s.startsWith("Supabase at "));
+  const blockedHome = report.skipped?.find((s) => s.startsWith("Live checks did not run. The homepage was a block"));
   const live = LIVE.map((r) => {
-    if (!ran) return row("live", r, "not_run", "Runs after you connect the Vercel project that hosts this site.");
+    if (!ran) return row("live", r, "not_run", blockedHome ?? "Runs after you connect the Vercel project that hosts this site.");
     if (r[0] === "supabase_rls" && supabaseSkip) return row("live", r, "not_run", supabaseSkip);
     return row("live", r, passed.has(r[0]) ? "pass" : "fail");
   });

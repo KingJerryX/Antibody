@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectSurface, probeOwned } from "./surface.ts";
+import { inspectSurface, probeOwned, unverifiedPage } from "./surface.ts";
 
 const SECURE = new Headers({
   "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
@@ -29,7 +29,7 @@ describe("inspectSurface", () => {
   });
 
   it("does not collapse missing protections into one low finding", () => {
-    const r = page("<html></html>", new Headers());
+    const r = page(`<form><input type="password"></form>`, new Headers());
     const titles = r.issues.map((i) => `${i.severity}:${i.title}`);
     expect(titles).toContain("medium:No Content Security Policy");
     expect(titles).toContain("medium:HTTPS is not locked in");
@@ -37,6 +37,15 @@ describe("inspectSurface", () => {
     expect(titles).toContain("low:Browsers are allowed to guess file types");
     expect(r.passed).not.toContain("security_headers");
     expect(r.passed).not.toContain("csp");
+  });
+
+  it("does not flag a typed HTML page that has nothing to downgrade", () => {
+    const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+    const r = page("<html></html>", headers);
+    const titles = r.issues.map((i) => i.title);
+    expect(titles).not.toContain("HTTPS is not locked in");
+    expect(titles).not.toContain("Browsers are allowed to guess file types");
+    expect(titles).toContain("No Content Security Policy");
   });
 
   it("flags public HTTP and leaves localhost alone", () => {
@@ -76,14 +85,53 @@ describe("inspectSurface", () => {
     headers.append("set-cookie", "session=abc; Path=/");
     const r = page("<html></html>", headers, { appCode: [`localStorage.setItem("access_token", "eyJhbGci")`] });
     expect(r.issues.some((i) => i.severity === "high" && i.title === "Session cookie is readable by page scripts")).toBe(true);
+    expect(r.issues.some((i) => i.title === "Cookie is sent over plain HTTP")).toBe(true);
     expect(r.issues.some((i) => i.severity === "high" && i.title === "Auth data is stored in the browser")).toBe(true);
+
+    const prefs = new Headers(SECURE);
+    prefs.append("set-cookie", "NID=abc; Path=/; Domain=.site.com; HttpOnly");
+    const quiet = page("<html></html>", prefs);
+    expect(quiet.issues.some((i) => i.title.startsWith("Cookie") || i.title.startsWith("Session cookie"))).toBe(false);
+  });
+
+  it("does not treat a typed homepage with a report-only policy as a broken app", () => {
+    const headers = new Headers({
+      "content-type": "text/html; charset=UTF-8",
+      "content-security-policy-report-only": "object-src 'none'",
+      "x-frame-options": "SAMEORIGIN",
+    });
+    headers.append("set-cookie", "NID=abc; Path=/; Secure; HttpOnly");
+    const r = page(
+      `<html><script>h===window.location.href&&(g=document.documentElement.outerHTML.split("\\n"))</script></html>`,
+      headers,
+    );
+    expect(r.issues.map((i) => i.title)).toEqual(["Content Security Policy is not enforced"]);
   });
 
   it("flags URL data written into HTML and ignores vendor-free safe code", () => {
     const bad = page("<html></html>", SECURE, { appCode: [`el.innerHTML = location.search`] });
     expect(bad.issues.some((i) => i.severity === "high" && i.kind === "xss")).toBe(true);
+    const write = page("<html></html>", SECURE, { appCode: [`document.write(location.hash)`] });
+    expect(write.issues.some((i) => i.severity === "high" && i.title === "Page writes the URL into HTML")).toBe(true);
+    const adjacent = page("<html></html>", SECURE, { appCode: [`el.innerHTML = "<b>ok</b>"; location.href = "/next"`] });
+    expect(adjacent.issues.some((i) => i.title === "Page writes the URL into HTML")).toBe(false);
+    const read = page("<html></html>", SECURE, {
+      appCode: [`h===window.location.href&&(g=document.documentElement.outerHTML.split("\\n"))`],
+    });
+    expect(read.issues.some((i) => i.kind === "xss")).toBe(false);
     const ok = page("<html></html>", SECURE, { appCode: [`el.textContent = "hi"`] });
     expect(ok.issues.some((i) => i.kind === "xss")).toBe(false);
+  });
+});
+
+describe("unverifiedPage", () => {
+  it("leaves a normal document alone and skips blocks, challenges, and errors", () => {
+    expect(unverifiedPage(200, "<html><title>Notes</title></html>", "https://site.com/")).toBeUndefined();
+    expect(unverifiedPage(200, "<html>Our systems have detected unusual traffic from your computer network.</html>", "https://www.google.com/")).toBeTruthy();
+    expect(unverifiedPage(200, "<html><title>Just a moment...</title></html>", "https://site.com/")).toBeTruthy();
+    expect(unverifiedPage(429, "<html><input type='password'><script>el.innerHTML = location.search</script></html>", "https://www.google.com/sorry/index")).toBeTruthy();
+    expect(unverifiedPage(200, "   ", "https://site.com/")).toBeTruthy();
+    expect(unverifiedPage(404, "<html>missing</html>", "https://site.com/missing")).toBeTruthy();
   });
 });
 

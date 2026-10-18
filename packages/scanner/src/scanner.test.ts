@@ -127,7 +127,7 @@ describe("scanUrl passive", () => {
   });
 
   it("splits missing browser protections by severity instead of one low header finding", async () => {
-    const { impl } = mockFetch([{ test: (u) => u === "https://site.com/", body: `<html></html>` }]);
+    const { impl } = mockFetch([{ test: (u) => u === "https://site.com/", body: `<html><input type="password"></html>` }]);
     const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
     const titles = r.findings.map((f) => f.title);
     expect(titles).toContain("No Content Security Policy");
@@ -362,6 +362,36 @@ describe("scanUrl active gating", () => {
     expect(calls.filter((c) => c.url.endsWith("/api/login") && c.method === "POST")).toHaveLength(25);
     expect(calls.filter((c) => c.url.endsWith("/api/signup") && c.method === "POST")).toHaveLength(1);
     expect(r.passed).not.toContain("rate_limit");
+  });
+
+  it("does not score a block page, and still reports DNS from the resolver", async () => {
+    const sorry = `<title>https://www.google.com/sorry/index</title><form><input type="password"></form><script src="/app.js"></script><script>el.innerHTML = location.search</script>`;
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "https://www.google.com/", status: 429, body: sorry, headers: { "set-cookie": "SID=abc; Path=/" } },
+      { test: (u) => u === "https://www.google.com/app.js", body: `el.innerHTML = location.hash` },
+      ...dnsPass("www.google.com"),
+    ]);
+    const r = await scanUrl("https://www.google.com/", { projectId: "p1", verifiedDomains: ["www.google.com"], owned: true, fetchImpl: impl });
+    expect(calls.filter((c) => c.url.startsWith("https://www.google.com"))).toEqual([{ url: "https://www.google.com/", method: "GET" }]);
+    expect(r.findings).toEqual([]);
+    expect(r.passed).toEqual(expect.arrayContaining(["dnssec", "dmarc"]));
+    expect(r.passed).not.toContain("csp");
+    expect(r.skipped?.some((s) => s.startsWith("Page review did not run"))).toBe(true);
+    expect(r.skipped?.some((s) => s.startsWith("Live checks did not run"))).toBe(true);
+  });
+
+  it("does not score a 200 challenge page that still contains a real-looking script", async () => {
+    const wall = `<html><title>Just a moment...</title><script>el.innerHTML = location.search</script></html>`;
+    const { impl, calls } = mockFetch([
+      { test: (u) => u === "https://site.com/", body: wall },
+      { test: (u) => u === "https://site.com/app.js", body: `el.innerHTML = location.hash` },
+      ...dnsPass("site.com"),
+    ]);
+    const r = await scanUrl("https://site.com/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    expect(calls.some((c) => c.url === "https://site.com/app.js")).toBe(false);
+    expect(r.findings.some((f) => f.title === "Page writes the URL into HTML")).toBe(false);
+    expect(r.findings.some((f) => f.kind === "missing_security_headers")).toBe(false);
+    expect(r.skipped?.[0]).toMatch(/Page review did not run/);
   });
 
   it("errors cleanly on an unreachable target", async () => {

@@ -22,6 +22,22 @@ it("treats DNS as passed on a local address and as not run when the lookup was s
   expect(skipped.find((c) => c.id === "csp")?.status).toBe("fail");
 });
 
+it("does not fail page checks when the response was a block or an error", () => {
+  const report = {
+    ...base,
+    skipped: [
+      "Page review did not run. The response was a block, challenge, or error page, so header and script findings were not scored.",
+      "Live checks did not run. The homepage was a block, challenge, or error page, so they were not scored.",
+    ],
+  };
+  const checks = scanChecks(report, undefined);
+  expect(checks.find((c) => c.id === "csp")?.status).toBe("not_run");
+  expect(checks.find((c) => c.id === "client_code")?.status).toBe("not_run");
+  expect(checks.find((c) => c.id === "https")?.status).toBe("not_run");
+  expect(checks.find((c) => c.id === "dnssec")?.status).toBe("fail");
+  expect(checks.find((c) => c.id === "supabase_rls")).toMatchObject({ status: "not_run", note: expect.stringContaining("block, challenge, or error page") });
+});
+
 it("reports live results once the site is proven, and code results from the audit", () => {
   const idor = { kind: "idor", detectedBy: "code_audit", location: { file: "app/api/users/[id]/route.ts", line: 4 } } as Finding;
   const report = { ...base, findings: [idor], passed: ["https", "rate_limit", "sensitive_files", "cors", "graphql", "supabase_rls"] };

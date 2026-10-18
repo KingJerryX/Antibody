@@ -19,6 +19,16 @@ export interface SurfaceResult {
   passed: string[];
 }
 
+/**
+ * The response is a block, challenge, redirect, or error, so its headers and scripts are not the site.
+ * Callers record the returned sentence on `skipped` and leave page checks unrun.
+ */
+export function unverifiedPage(status: number, html: string, finalUrl: string): string | undefined {
+  if (status < 200 || status >= 300 || !html.trim() || challengePage(html, finalUrl)) {
+    return "Page review did not run. The response was a block, challenge, or error page, so header and script findings were not scored.";
+  }
+}
+
 const SESSION_COOKIE = /session|sid|token|auth|jwt|^sess/i;
 const CSRF_COOKIE = /csrf|xsrf/i;
 const SENSITIVE_KEY = /token|jwt|auth|password|secret|session|api[-_]?key|credential|refresh/i;
@@ -35,14 +45,17 @@ export function inspectSurface(input: {
   const https = input.origin.startsWith("https://");
   const local = isLocal(input.host);
   const issues: SurfaceIssue[] = [];
+  const cookies = setCookies(input.headers).map(parseCookie).filter((c) => c.name);
+  const session = cookies.filter((c) => SESSION_COOKIE.test(c.name) && !CSRF_COOKIE.test(c.name));
+  const credentials = session.length > 0 || passwordField(input.html);
 
-  issues.push(...headerIssues(input.headers, https));
+  issues.push(...headerIssues(input.headers, https, credentials));
   if (!https && !local) issues.push(plainHttp(input.html));
   if (https) {
     const mixed = mixedContent(input.html);
     if (mixed.length) issues.push(mixedIssue(mixed));
   }
-  issues.push(...cookieIssues(input.headers, https));
+  issues.push(...cookieIssues(cookies, https));
   const third = thirdPartyScripts(input.html, input.origin);
   if (third.length) issues.push(thirdPartyIssue(third));
   if (input.sourceMapUrls.length) issues.push(sourceMapIssue(input.sourceMapUrls));
@@ -82,7 +95,7 @@ export async function probeOwned(fetchImpl: typeof fetch, origin: string): Promi
   return { issues, passed };
 }
 
-function headerIssues(headers: Headers, https: boolean): SurfaceIssue[] {
+function headerIssues(headers: Headers, https: boolean, credentials: boolean): SurfaceIssue[] {
   const out: SurfaceIssue[] = [];
   const csp = headers.get("content-security-policy");
   const reportOnly = headers.get("content-security-policy-report-only");
@@ -124,20 +137,20 @@ function headerIssues(headers: Headers, https: boolean): SurfaceIssue[] {
       ),
     );
   }
-  if (!headers.get("x-content-type-options")) {
+  if (!headers.get("x-content-type-options") && sniffableType(headers.get("content-type"))) {
     out.push(
       issue(
         "missing_security_headers",
         "low",
         "Browsers are allowed to guess file types",
-        "The site does not send X-Content-Type-Options.",
-        "A browser may treat an uploaded text file as a script, which turns a file upload into code running on your origin.",
-        "The response has no X-Content-Type-Options header.",
+        "This response has no X-Content-Type-Options header, and its Content-Type is missing or generic.",
+        "A browser may treat that file as a script, which turns an upload into code running on your origin.",
+        "The response has no X-Content-Type-Options header, and Content-Type is missing or generic.",
         "Send X-Content-Type-Options: nosniff on every response.",
       ),
     );
   }
-  if (https && !headers.get("strict-transport-security")) {
+  if (https && credentials && !headers.get("strict-transport-security")) {
     out.push(
       issue(
         "missing_security_headers",
@@ -154,7 +167,7 @@ function headerIssues(headers: Headers, https: boolean): SurfaceIssue[] {
 }
 
 function plainHttp(html: string): SurfaceIssue {
-  const password = /<input\b[^>]*\btype\s*=\s*["']password["']/i.test(html);
+  const password = passwordField(html);
   return issue(
     "missing_security_headers",
     "high",
@@ -218,8 +231,7 @@ function directoryIssue(): SurfaceIssue {
   );
 }
 
-function cookieIssues(headers: Headers, https: boolean): SurfaceIssue[] {
-  const cookies = setCookies(headers).map(parseCookie).filter((c) => c.name);
+function cookieIssues(cookies: { name: string; attrs: string }[], https: boolean): SurfaceIssue[] {
   const out: SurfaceIssue[] = [];
   const session = cookies.filter((c) => SESSION_COOKIE.test(c.name) && !CSRF_COOKIE.test(c.name));
   const noHttpOnly = session.filter((c) => !/\bhttponly\b/i.test(c.attrs));
@@ -251,7 +263,7 @@ function cookieIssues(headers: Headers, https: boolean): SurfaceIssue[] {
     );
   }
   if (https) {
-    const noSecure = cookies.filter((c) => !/\bsecure\b/i.test(c.attrs));
+    const noSecure = session.filter((c) => !/\bsecure\b/i.test(c.attrs));
     if (noSecure.length) {
       out.push(
         issue(
@@ -299,13 +311,7 @@ function clientIssues(files: string[], https: boolean): SurfaceIssue[] {
     );
   }
 
-  const sink =
-    /(?:\.innerHTML|\.outerHTML|insertAdjacentHTML|document\.write|dangerouslySetInnerHTML)[\s\S]{0,160}?(?:location(?:\.hash|\.search|\.href)?|searchParams|document\.URL|document\.referrer|window\.name)/.test(
-      blob,
-    ) ||
-    /(?:location(?:\.hash|\.search|\.href)|searchParams|document\.URL|document\.referrer)[\s\S]{0,160}?(?:\.innerHTML|\.outerHTML|insertAdjacentHTML|document\.write|dangerouslySetInnerHTML)/.test(
-      blob,
-    );
+  const sink = writesUrlIntoHtml(blob);
   if (sink) {
     out.push(
       issue(
@@ -314,7 +320,7 @@ function clientIssues(files: string[], https: boolean): SurfaceIssue[] {
         "Page writes the URL into HTML",
         "Script on the page takes part of the URL and writes it into the document as HTML.",
         "Anyone who can get a victim to open a crafted link can run JavaScript as that person.",
-        "An HTML sink (innerHTML, document.write, or dangerouslySetInnerHTML) sits next to location, searchParams, or document.URL.",
+        "A URL value (location.search, location.hash, location.href, or searchParams) is assigned to innerHTML or outerHTML, or passed to document.write, insertAdjacentHTML, or dangerouslySetInnerHTML.",
         "Insert that value as text, or sanitize it with a library you trust before it becomes HTML.",
       ),
     );
@@ -536,6 +542,118 @@ function inlineScripts(html: string): string[] {
 
 function directoryListing(html: string): boolean {
   return /<title>\s*Index of \//i.test(html) || /<h1>\s*Index of \//i.test(html);
+}
+
+/** Bot walls and interstitials served with HTTP 200. A normal page that mentions one of these words is left alone. */
+function challengePage(html: string, finalUrl: string): boolean {
+  const path = URL.parse(finalUrl)?.pathname ?? "";
+  if (/\/sorry(?:\/|$)/i.test(path)) return true;
+  const title = html.match(/<title[^>]*>([^<]{0,180})/i)?.[1]?.trim() ?? "";
+  if (/^just a moment/i.test(title) || /attention required/i.test(title)) return true;
+  return /unusual traffic|cf-browser-verification|cdn-cgi\/challenge|challenge-platform|checking your browser/i.test(html.slice(0, 4000));
+}
+
+function passwordField(html: string): boolean {
+  return /<input\b[^>]*\btype\s*=\s*["']password["']/i.test(html);
+}
+
+/** Missing or generic type. An explicit text/html (or script, css, json, image) response is not a sniff. */
+function sniffableType(contentType: string | null): boolean {
+  if (!contentType) return true;
+  const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return type === "" || type === "text/plain" || type === "application/octet-stream" || type === "binary/octet-stream" || type === "application/x-download";
+}
+
+const URL_VALUE = /\blocation\s*\.\s*(?:hash|search|href)\b|\bdocument\s*\.\s*(?:URL|referrer)\b|\bwindow\s*\.\s*name\b|\bsearchParams\b/;
+
+/** True when a URL-derived value is what gets parsed as HTML, not merely near a read of innerHTML/outerHTML. */
+function writesUrlIntoHtml(code: string): boolean {
+  if (assignedUrl(code, "innerHTML") || assignedUrl(code, "outerHTML")) return true;
+  if (callContainsUrl(code, /document\s*\.\s*write(?:ln)?\s*\(/g)) return true;
+  if (secondArgContainsUrl(code, /insertAdjacentHTML\s*\(/g)) return true;
+  return dangerouslyContainsUrl(code);
+}
+
+function assignedUrl(code: string, prop: string): boolean {
+  const re = new RegExp(`\\.${prop}\\s*\\+?=\\s*`, "g");
+  for (const m of code.matchAll(re)) {
+    const at = (m.index ?? 0) + m[0].length;
+    if (URL_VALUE.test(statementFrom(code, at))) return true;
+  }
+  return false;
+}
+
+function callContainsUrl(code: string, re: RegExp): boolean {
+  for (const m of code.matchAll(re)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    if (code[open] === "(" && URL_VALUE.test(readBalanced(code, open))) return true;
+  }
+  return false;
+}
+
+function secondArgContainsUrl(code: string, re: RegExp): boolean {
+  for (const m of code.matchAll(re)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    if (code[open] !== "(") continue;
+    const second = splitArgs(readBalanced(code, open))[1] ?? "";
+    if (URL_VALUE.test(second)) return true;
+  }
+  return false;
+}
+
+function dangerouslyContainsUrl(code: string): boolean {
+  for (const m of code.matchAll(/dangerouslySetInnerHTML\s*:\s*\{/g)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    if (URL_VALUE.test(readBalanced(code, open))) return true;
+  }
+  return false;
+}
+
+function statementFrom(code: string, start: number): string {
+  let depth = 0;
+  const end = Math.min(code.length, start + 400);
+  let i = start;
+  for (; i < end; i++) {
+    const c = code[i];
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") {
+      if (depth === 0) break;
+      depth--;
+    } else if (c === ";" && depth === 0) break;
+  }
+  return code.slice(start, i);
+}
+
+function readBalanced(code: string, openAt: number): string {
+  const open = code[openAt];
+  const close = open === "(" ? ")" : open === "{" ? "}" : "]";
+  let depth = 0;
+  const end = Math.min(code.length, openAt + 800);
+  for (let i = openAt; i < end; i++) {
+    if (code[i] === open) depth++;
+    else if (code[i] === close) {
+      depth--;
+      if (depth === 0) return code.slice(openAt + 1, i);
+    }
+  }
+  return code.slice(openAt + 1, end);
+}
+
+function splitArgs(args: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth = Math.max(0, depth - 1);
+    else if (c === "," && depth === 0) {
+      out.push(args.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(args.slice(start));
+  return out;
 }
 
 function setCookies(headers: Headers): string[] {

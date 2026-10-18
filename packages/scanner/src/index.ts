@@ -2,7 +2,7 @@ import type { Finding, FindingKind, ScanReport, Severity } from "@antibody/core"
 import { newId } from "@antibody/core";
 import { dnsApplies, inspectDns } from "./dns.ts";
 import { findSupabase, redact, scanSecrets } from "./secrets.ts";
-import { inspectSurface, probeOwned } from "./surface.ts";
+import { inspectSurface, probeOwned, unverifiedPage } from "./surface.ts";
 export { auditCode, auditGithubRepo, auditRepo, mergeFindings } from "./code-audit.ts";
 export { liveChecksRan, scanChecks } from "./checks.ts";
 export type { ReviewResult } from "./repo-review.ts";
@@ -56,48 +56,57 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const dnsTask = dnsApplies(target.hostname) ? inspectDns(target.hostname, fetchImpl) : null;
 
   // --- Passive: fetch the page, then same-origin JS bundles. Allowed on any host. ---
-  let html: string;
-  let headers: Headers;
+  let html = "";
+  let headers = new Headers();
+  let unverified: string | undefined;
+  let discovered: string[] = [];
+  let blob = "";
   try {
     const res = await fetchImpl(targetUrl);
     headers = res.headers;
     html = await res.text();
+    unverified = unverifiedPage(res.status, html, res.url || targetUrl);
   } catch (err) {
     void dnsTask?.catch(() => undefined);
     return fail(`Could not reach ${targetUrl}: ${(err as Error).message}`);
   }
 
-  // App code first: framework/vendor chunks (react-dom, next runtime, HMR) would otherwise eat the cap.
-  const all = sameOriginScripts(html, origin, targetUrl);
-  const bundles = [...all.filter((s) => !VENDOR.test(s)), ...all.filter((s) => VENDOR.test(s))].slice(0, MAX_BUNDLES);
-  // A bundle that won't load just isn't scanned.
-  const texts = await Promise.all(bundles.map((src) => fetchImpl(src).then((r) => r.text()).catch(() => "")));
-  // A source map linked from a bundle is already public. Same origin only; its sourcesContent is the app's own code.
-  const mapped = await sourceMaps(fetchImpl, bundles, texts, origin);
-  const maps = mapped.flatMap((m) => m.texts);
-  const blob = [html, ...texts, ...maps].join("\n");
-  const discovered = discoverApiPaths(blob);
+  // A block, challenge, or error page is not evidence about the app. Leave its headers and scripts unscored.
+  if (unverified) {
+    skipped.push(unverified);
+  } else {
+    // App code first: framework/vendor chunks (react-dom, next runtime, HMR) would otherwise eat the cap.
+    const all = sameOriginScripts(html, origin, targetUrl);
+    const bundles = [...all.filter((s) => !VENDOR.test(s)), ...all.filter((s) => VENDOR.test(s))].slice(0, MAX_BUNDLES);
+    // A bundle that won't load just isn't scanned.
+    const texts = await Promise.all(bundles.map((src) => fetchImpl(src).then((r) => r.text()).catch(() => "")));
+    // A source map linked from a bundle is already public. Same origin only; its sourcesContent is the app's own code.
+    const mapped = await sourceMaps(fetchImpl, bundles, texts, origin);
+    const maps = mapped.flatMap((m) => m.texts);
+    blob = [html, ...texts, ...maps].join("\n");
+    discovered = discoverApiPaths(blob);
 
-  // Secrets
-  const secretHits = scanSecrets(blob);
-  for (const h of secretHits) {
-    findings.push(
-      mk("secret_in_bundle", "critical", `${h.kind} exposed in your site's code`, {
-        plainEnglish: `Your ${h.kind} is sitting in code that anyone visiting your site can read. Secret keys are supposed to stay on your server.`,
-        impact: `Anyone can copy this key and run up charges on your account or reach data it unlocks. Found: ${h.redacted}`,
-        evidence: `${h.kind}: ${h.redacted}`,
-        fixHint: `Rotate this key now, then move it to a server-side environment variable instead of shipping it to the browser.`,
-      }),
-    );
+    // Secrets
+    const secretHits = scanSecrets(blob);
+    for (const h of secretHits) {
+      findings.push(
+        mk("secret_in_bundle", "critical", `${h.kind} exposed in your site's code`, {
+          plainEnglish: `Your ${h.kind} is sitting in code that anyone visiting your site can read. Secret keys are supposed to stay on your server.`,
+          impact: `Anyone can copy this key and run up charges on your account or reach data it unlocks. Found: ${h.redacted}`,
+          evidence: `${h.kind}: ${h.redacted}`,
+          fixHint: `Rotate this key now, then move it to a server-side environment variable instead of shipping it to the browser.`,
+        }),
+      );
+    }
+    if (!secretHits.length) passed.push("secret_scan");
+
+    // Headers, cookies, and the app's own scripts. No extra requests.
+    const exposedMaps = mapped.filter((m) => m.texts.length > 0 && !VENDOR.test(m.scriptUrl)).map((m) => m.url);
+    const appCode = texts.filter((_, i) => !VENDOR.test(bundles[i] ?? ""));
+    const surface = inspectSurface({ html, headers, origin, host: target.host, appCode, sourceMapUrls: exposedMaps });
+    for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
+    passed.push(...surface.passed);
   }
-  if (!secretHits.length) passed.push("secret_scan");
-
-  // Headers, cookies, and the app's own scripts. No extra requests.
-  const exposedMaps = mapped.filter((m) => m.texts.length > 0 && !VENDOR.test(m.scriptUrl)).map((m) => m.url);
-  const appCode = texts.filter((_, i) => !VENDOR.test(bundles[i] ?? ""));
-  const surface = inspectSurface({ html, headers, origin, host: target.host, appCode, sourceMapUrls: exposedMaps });
-  for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
-  passed.push(...surface.passed);
 
   if (dnsTask) {
     const dns = await dnsTask;
@@ -109,8 +118,12 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   // --- Active: a host on the allowlist, or a site its signed-in owner proved through Connect Vercel. ---
   const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
   const owned = allow.has(target.host.toLowerCase()) || opts.owned === true;
-  if (!owned) {
-    skipped.push("Live checks did not run. They call this site's API with no login, so they wait until you connect the Vercel project that hosts it.");
+  if (unverified || !owned) {
+    skipped.push(
+      unverified
+        ? "Live checks did not run. The homepage was a block, challenge, or error page, so they were not scored."
+        : "Live checks did not run. They call this site's API with no login, so they wait until you connect the Vercel project that hosts it.",
+    );
     return report({ status: "done", findings, passed, skipped });
   }
   // Active probes never follow redirects: a verified host could 3xx us onto a host that isn't verified.
