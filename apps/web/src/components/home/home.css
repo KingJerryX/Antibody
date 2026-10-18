@@ -1831,6 +1831,7 @@
   .ab .unlock { grid-template-columns: 1fr; justify-items: start; }
 }
 
-/* Home backdrop: drifting pools of green light behind everything (Aurora.tsx moves them). */
-.aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+/* Home backdrop: drifting pools of green light behind the hero, down to the partner bar (Aurora.tsx moves them). */
+.home-top { position: relative; isolation: isolate; }
+.aurora { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
 .aurora-pool { position: absolute; border-radius: 50%; filter: blur(40px); will-change: transform; }
