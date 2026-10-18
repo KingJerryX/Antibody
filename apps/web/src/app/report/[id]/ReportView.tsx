@@ -3,7 +3,7 @@
 import type { CheckTier, Finding, ScanCheck, ScanReport, Severity } from "@antibody/core";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SEVERITY_ORDER } from "@/components/ui";
 import { useHealth } from "@/components/useHealth";
 import { usePoll } from "@/components/usePoll";
@@ -101,11 +101,16 @@ function present(f: Finding) {
   };
 }
 
+type OpenFix = { id: string; status: string };
+/** The latest fix per finding (from GET /api/scan/[id]), so a finding links to its fix instead of starting another. */
+const OpenFixes = createContext<Record<string, OpenFix>>({});
+const FIX_LABEL: Record<string, string> = { drafting: "View fix (Droid is writing it)", ready: "Review the fix", approved: "View fix (approved)", merged: "View fix (merged)" };
+
 export function ReportView() {
   const { id } = useParams<{ id: string }>();
   // A signed-out scan lives only in this page's memory: no server copy to poll, and a refresh forgets it.
   const kept = unsavedReport<ScanReport>(id);
-  const { data, error } = usePoll<ScanReport & { canFix?: boolean }>(kept ? null : `/api/scan/${id}`, 1500, (s) => s.status === "running");
+  const { data, error } = usePoll<ScanReport & { canFix?: boolean; fixes?: Record<string, OpenFix> }>(kept ? null : `/api/scan/${id}`, 1500, (s) => s.status === "running");
   const health = useHealth();
   // Filled by the scan form on Vercel, where the next request may not see the file the scan wrote.
   const cached = useSessionValue<ScanReport>(`antibody-scan:${id}`);
@@ -164,7 +169,9 @@ export function ReportView() {
         ) : scan.status === "error" ? (
           <Failed scan={scan} />
         ) : (
-          <Done scan={scan} findings={findings} offline={health?.fixes === "offline"} canFix={data?.canFix === true} />
+          <OpenFixes.Provider value={data?.fixes ?? {}}>
+            <Done scan={scan} findings={findings} offline={health?.fixes === "offline"} canFix={data?.canFix === true} />
+          </OpenFixes.Provider>
         )}
       </div>
     </div>
@@ -439,6 +446,7 @@ function IssueBoard({ findings, offline, canFix }: { findings: Finding[]; offlin
 }
 
 function FindingBlock({ finding: f, offline, canFix, hideObserved }: { finding: Finding; offline: boolean; canFix: boolean; hideObserved: boolean }) {
+  const openFix = useContext(OpenFixes)[f.id];
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -498,7 +506,11 @@ function FindingBlock({ finding: f, offline, canFix, hideObserved }: { finding: 
             {showEvidence ? "Hide evidence" : "View evidence"}
           </button>
         )}
-        {canFix ? (
+        {openFix ? (
+          <Link className="btn btn-lime" href={`/fix/${openFix.id}`}>
+            {FIX_LABEL[openFix.status] ?? "View fix"}
+          </Link>
+        ) : canFix ? (
           <button
             type="button"
             className={offline ? "btn btn-offline" : "btn btn-lime"}

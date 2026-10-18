@@ -15,7 +15,6 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
         <span className="flex gap-4">
           <Link href="/features" className="hover:text-[#e4e6e1]">Features</Link>
           <Link href="/docs" className="hover:text-[#e4e6e1]">Docs</Link>
-          <Link href="/evals" className="hover:text-[#e4e6e1]">Eval scoreboard</Link>
           <Link href="/privacy" className="hover:text-[#e4e6e1]">Privacy</Link>
           <Link href="/terms" className="hover:text-[#e4e6e1]">Terms</Link>
         </span>

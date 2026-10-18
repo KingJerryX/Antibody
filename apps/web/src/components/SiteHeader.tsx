@@ -70,7 +70,6 @@ function Header({ path }: { path: string }) {
         <Link href="/#scan-job" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Product</Link>
         {tab("/features", "Features")}
         {tab("/docs", "Docs")}
-        {tab("/evals", "Evals")}
         {me?.user ? <Link href="/sites" className="rounded-full px-3 py-2 text-[#9b9e96] hover:text-[#e4e6e1]" onClick={close}>Your sites</Link> : null}
         <Link href="/#scan" className="ml-2 inline-flex items-center rounded-full bg-white px-3.5 py-2 text-sm text-[#141614] hover:bg-[#f3f4f0]" onClick={close}>Scan</Link>
         <div className="mt-1 flex items-center gap-1 min-[861px]:hidden">{account}</div>

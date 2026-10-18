@@ -68,7 +68,7 @@ function verdict(fix: FixProposal, checks: FixCheck[], phase: Phase) {
 
 export function FixView() {
   const { id } = useParams<{ id: string }>();
-  const { data, error, setData, refresh } = usePoll<FixProposal>(
+  const { data, error, setData, refresh } = usePoll<FixProposal & { scanId?: string }>(
     `/api/fixes/${id}`,
     2000,
     // Also keep polling while a just-approved fix waits for its pull request.
@@ -78,7 +78,7 @@ export function FixView() {
       (f.status === "approved" && !f.prUrl && (!f.prNote || f.prNote.startsWith("Opening"))),
   );
   // Written by Fix it on Vercel, where the next request may not see the file this one wrote.
-  const cached = useSessionValue<FixProposal>(`antibody-fix:${id}`);
+  const cached = useSessionValue<FixProposal & { scanId?: string }>(`antibody-fix:${id}`);
   const fix = data ?? cached;
   useEffect(() => {
     if (fix) sessionStorage.setItem(`antibody-fix:${id}`, JSON.stringify(fix));
@@ -106,9 +106,16 @@ export function FixView() {
           <nav className="crumb" aria-label="Breadcrumb">
             <Link href="/">Home</Link>
             <span aria-hidden="true">/</span>
+            {fix.scanId && (
+              <>
+                <Link href={`/report/${fix.scanId}`}>Report</Link>
+                <span aria-hidden="true">/</span>
+              </>
+            )}
             <span>Fix</span>
           </nav>
           <span className="report-links">
+            {fix.scanId && <Link href={`/report/${fix.scanId}`}>Back to the report</Link>}
             <Link href={`/live/${fix.projectId}`}>Live view</Link>
           </span>
         </div>

@@ -1116,60 +1116,9 @@
 .ab header, .ab .nav { background: var(--bg); backdrop-filter: none; }
   }
 
-/* Eval scoreboard. Same cards and type as the home page. */
+/* Breadcrumbs (report, fix pages). */
 .ab .crumb a { color: var(--lime); }
 
-.ab .evals-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
-
-.ab .evals-cards { align-items: stretch; }
-
-.ab .evals-cards article {
-  display: flex;
-  flex-direction: column;
-  min-height: 280px;
-  padding: 22px;
-  border-radius: 18px;
-  border: 1px solid var(--line);
-  background:
-    radial-gradient(420px 160px at 0% 0%, rgba(127, 238, 100, 0.07), transparent 55%),
-    var(--card);
-}
-
-.ab .evals-cards .figure {
-  font-size: 40px;
-  font-weight: 500;
-  letter-spacing: -0.03em;
-  line-height: 1;
-}
-
-.ab .evals-cards .figure.ok { color: var(--lime); }
-.ab .evals-cards .figure.warn { color: var(--warn); }
-.ab .evals-cards .figure.bad { color: var(--danger); }
-.ab .evals-cards .figure.idle { color: var(--muted); }
-
-.ab .evals-cards .mini { margin-top: 22px; width: 100%; }
-
-.ab .evals-cards .metric {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 16px;
-  width: 100%;
-  max-width: none;
-}
-
-.ab .evals-cards .metric span:last-child { flex: none; }
-
-.ab .evals-cards .mini .warn { color: var(--warn); }
-.ab .evals-cards .mini .bad { color: var(--danger); }
-
-.ab .evals-cards h2 { margin: auto 0 6px; padding-top: 22px; font-size: 16px; font-weight: 500; letter-spacing: 0; }
-
-.ab .evals-cards article > p { color: var(--muted); font-size: 14px; line-height: 1.45; }
-
-.ab .evals-foot { margin-top: 22px; color: var(--faint); font-size: 13px; }
-
-.ab .evals-foot code { font-family: var(--mono); color: var(--muted); }
 
 .ab .run {
   margin-top: 28px;
@@ -1190,10 +1139,6 @@
   font-size: 13px;
   line-height: 1.7;
   color: var(--ink);
-}
-
-@media (max-width: 560px) {
-  .ab .evals-cards { grid-template-columns: 1fr; }
 }
 
 /* Scan report. Same type, color, and buttons as the home page. */
