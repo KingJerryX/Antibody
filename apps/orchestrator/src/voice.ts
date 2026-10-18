@@ -1,5 +1,5 @@
 // Emergency phone calls: ElevenLabs voice agent dialing out through the Photon SIP trunk, or a mock.
-import { logActivity, memoryFor, updateDb } from "@antibody/core";
+import { logActivity, memoryFor, readDb, updateDb } from "@antibody/core";
 import { isLive, maskHandle } from "./integrations.ts";
 import type { Messenger } from "./messenger.ts";
 
@@ -23,13 +23,22 @@ async function elevenLabsCall(to: string, ctx: CallContext): Promise<string | un
       agent_id: process.env.ELEVENLABS_AGENT_ID,
       agent_phone_number_id: process.env.ELEVENLABS_PHONE_NUMBER_ID,
       to_number: to,
-      // `facts` stays defined (empty) in case the agent's prompt references {{facts}}.
-      conversation_initiation_client_data: { dynamic_variables: { opening: ctx.script, facts: "" } },
+      // The agent's prompt allows it to state only {{facts}}, so a question like "did they get in?" gets a real answer.
+      conversation_initiation_client_data: { dynamic_variables: { opening: ctx.script, facts: await callFacts(ctx.projectId) } },
     }),
   });
   if (!res.ok) throw new Error(`ElevenLabs outbound call failed: HTTP ${res.status}`);
   const body = (await res.json()) as { conversation_id?: string; callSid?: string; sip_call_id?: string };
   return body.conversation_id ?? body.sip_call_id ?? body.callSid;
+}
+
+/** The shield's blocks on this project in the last hour, oldest first, as lines the voice agent may read out. */
+async function callFacts(projectId: string): Promise<string> {
+  const since = Date.now() - 60 * 60_000;
+  const blocks = (await readDb()).activity.filter((a) => a.projectId === projectId && a.type === "block" && Date.parse(a.at) > since);
+  if (!blocks.length) return "No blocked requests recorded in the last hour.";
+  const lines = blocks.slice(-8).map((a) => `- ${a.at.slice(11, 16)} UTC: ${a.title}${a.detail ? ` (${a.detail})` : ""}${a.source === "chalk" ? ", decided by Chalk" : ""}`);
+  return [`${blocks.length} blocked or slowed requests in the last hour. Every request after the block was refused before reaching the app.`, ...lines].join("\n");
 }
 
 export async function placeCall(to: string, ctx: CallContext, messenger: Messenger): Promise<void> {

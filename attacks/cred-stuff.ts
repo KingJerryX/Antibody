@@ -20,7 +20,7 @@ for (const pw of guesses) {
     body: JSON.stringify({ email: "alice.patel1@example.com", password: pw }),
   });
   tried++;
-  if (res.status === 403 || res.status === 429) {
+  if (res.status === 403) {
     blockedAt = tried;
     break;
   }

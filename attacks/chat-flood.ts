@@ -15,7 +15,7 @@ for (let i = 1; i <= N; i++) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt: `spam ${i}` }),
   });
-  if (res.status === 403 || res.status === 429) {
+  if (res.status === 403) {
     blockedAt = i;
     break;
   }

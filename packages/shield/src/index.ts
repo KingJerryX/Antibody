@@ -208,7 +208,8 @@ export function createShield(opts: { projectId: string; protect?: (pathname: str
     const d = await evaluate(ctx);
     if (d.action === "allow") return undefined;
 
-    const actor = ctx.sessionId ?? ctx.ip;
+    // Per action, so a challenge that escalates to a block within the window still reports the block (that one alerts).
+    const actor = `${d.action}:${ctx.sessionId ?? ctx.ip}`;
     const now = Date.now();
     if (now - (lastReport.get(actor) ?? 0) >= REPORT_EVERY_MS) {
       if (now - lastSweep >= REPORT_EVERY_MS) {

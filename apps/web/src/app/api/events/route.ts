@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const logged = await logActivity(event);
   if (alert) {
     // After the response, so the shield's report never waits on Photon. critical + active = text now, call if no reply.
-    const text = `Antibody just blocked an attack on ${alert}: ${title}. ${event.detail ? `${event.detail}. ` : ""}Reply STATUS for details.`;
+    const text = `Antibody just blocked an attack on ${alert}: ${title}${event.detail ? `, because ${event.detail}` : ""}. Reply STATUS for details.`;
     after(() => proxyToOrchestrator("/notify", { projectId, severity: "critical", active: true, text, refId: logged.id }).then(() => undefined, () => undefined));
   }
   return Response.json(logged, { status: 201 });
@@ -57,5 +57,5 @@ async function firstBlockOfAttack(projectId: string): Promise<string | undefined
   const since = Date.now() - ATTACK_GAP_MS;
   if (db.activity.some((a) => a.projectId === projectId && a.type === "block" && (a.riskScore ?? 1) >= BLOCK_AT && Date.parse(a.at) > since)) return undefined;
   const url = db.projects.find((p) => p.id === projectId)?.url;
-  return (url && URL.parse(url)?.host) || projectId;
+  return (url && URL.parse(url)?.host) || "your app";
 }

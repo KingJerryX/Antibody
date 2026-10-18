@@ -10,7 +10,7 @@ let blockedAt = 0;
 
 for (let id = 1; id <= N; id++) {
   const res = await attackFetch(`${origin}/api/users/${id}`);
-  if (res.status === 403 || res.status === 429) {
+  if (res.status === 403) {
     blockedAt = id;
     break;
   }
