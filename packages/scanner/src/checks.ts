@@ -52,7 +52,7 @@ export function scanChecks(report: ScanReport, audit: ReviewResult | undefined):
   const ran = liveChecksRan(report);
   const supabaseSkip = report.skipped?.find((s) => s.startsWith("Supabase at "));
   const live = LIVE.map((r) => {
-    if (!ran) return row("live", r, "not_run", "Runs after you prove you own the site (setup page).");
+    if (!ran) return row("live", r, "not_run", "Runs after you connect the Vercel project that hosts this site.");
     if (r[0] === "supabase_rls" && supabaseSkip) return row("live", r, "not_run", supabaseSkip);
     return row("live", r, passed.has(r[0]) ? "pass" : "fail");
   });

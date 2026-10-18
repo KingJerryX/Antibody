@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { isGithubConnected, logActivity, newId, updateDb, type Project, type ScanReport } from "@antibody/core";
-import { auditGithubRepo, auditRepo, liveChecksRan, mergeFindings, scanChecks, scanUrl, type ReviewResult } from "@antibody/scanner";
+import { auditGithubRepo, auditRepo, mergeFindings, scanChecks, scanUrl, type ReviewResult } from "@antibody/scanner";
 import { proxyToOrchestrator, repoDirFor, verifiedDomains } from "@/lib/server";
 import { currentUser, projectIdFor } from "@/lib/auth";
 
@@ -71,7 +71,8 @@ export async function POST(request: Request) {
         // Code comes from the project's connected GitHub repo, else a local folder (ANTIBODY_REPOS).
         const repoDir = repoDirFor(target.host);
         const [result, audit] = await Promise.all([
-          scanUrl(target.href, { projectId: project.id, verifiedDomains: domains }),
+          // Proven by Connect Vercel (saved on the project), or on the env allowlist.
+          scanUrl(target.href, { projectId: project.id, verifiedDomains: domains, owned: project.verifiedDomain }),
           isGithubConnected(project) ? auditConnectedRepo(project) : repoDir ? auditRepo(repoDir, project.id) : undefined,
         ]);
         report = { ...result, id: scanId, projectId: project.id, status: result.status === "running" ? "done" : result.status, finishedAt: result.finishedAt ?? new Date().toISOString() };
@@ -88,12 +89,6 @@ export async function POST(request: Request) {
         const i = db.scans.findIndex((s) => s.id === scanId);
         if (i >= 0) db.scans[i] = report;
         else db.scans.push(report);
-        // Live checks run only on a proven site, so this scan says whether it's still verified.
-        const p = db.projects.find((x) => x.id === project.id);
-        if (p && report.status === "done") {
-          p.verifiedDomain = liveChecksRan(report);
-          if (p.verifiedDomain) delete p.verifyPrUrl;
-        }
       });
       const serious = report.findings.filter((f) => f.severity === "critical" || f.severity === "high");
       await logActivity({

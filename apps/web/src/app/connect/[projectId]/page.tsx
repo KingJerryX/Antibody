@@ -10,7 +10,7 @@ import { CopyButton, RefreshWhile } from "./ConnectClient";
 
 export const metadata = { title: "Set up | Antibody" };
 
-type Search = Promise<{ phoneError?: string; verifyError?: string }>;
+type Search = Promise<{ phoneError?: string }>;
 
 export default function ConnectPage({ params, searchParams }: { params: Promise<{ projectId: string }>; searchParams: Search }) {
   return (
@@ -88,7 +88,6 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
   const registered = memory?.phoneLines ?? [];
   const search = await searchParams;
   const phoneError = search.phoneError?.slice(0, 300);
-  const verifyError = search.verifyError?.slice(0, 300);
   const steps = [Boolean(project.repo), project.verifiedDomain, linked.length > 0];
 
   return (
@@ -111,8 +110,8 @@ async function Setup({ params, searchParams }: { params: Promise<{ projectId: st
           <GithubStep projectId={projectId} repo={project.repo} installationId={project.githubInstallationId} />
         </Step>
 
-        <Step done={project.verifiedDomain} title="Prove you own the site">
-          <VerifyStep project={project} error={verifyError} />
+        <Step done={project.verifiedDomain} title="Connect Vercel">
+          <VercelStep project={project} />
         </Step>
 
         <Step done={linked.length > 0} title="Get alerts on your phone">
@@ -244,16 +243,6 @@ async function GithubStep({ projectId, repo, installationId }: { projectId: stri
   );
 }
 
-/** Looks for the verify file on the live site and saves the result (POST /api/verify/check). */
-function CheckNow({ projectId, className, label = "Check now" }: { projectId: string; className: string; label?: string }) {
-  return (
-    <form action="/api/verify/check" method="post">
-      <input type="hidden" name="projectId" value={projectId} />
-      <button className={className}>{label}</button>
-    </form>
-  );
-}
-
 function SignInGate({ projectId, name, signedIn }: { projectId: string; name: string; signedIn: boolean }) {
   return (
     <div className="mx-auto max-w-3xl px-5 py-16">
@@ -261,7 +250,7 @@ function SignInGate({ projectId, name, signedIn }: { projectId: string; name: st
       <p className="mt-3 text-slate-400">
         {signedIn
           ? "This site is set up under another GitHub account. Sign in as that account to change it."
-          : "Sign in with GitHub to connect your repo, prove you own the site and get alerts. Your progress is saved to your account."}
+          : "Sign in with GitHub to connect your repo and Vercel, and get alerts. Your progress is saved to your account."}
       </p>
       {!signedIn && (
         <a href={`/api/auth/github?next=${encodeURIComponent(`/connect/${projectId}`)}`} className="mt-6 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110">
@@ -272,59 +261,22 @@ function SignInGate({ projectId, name, signedIn }: { projectId: string; name: st
   );
 }
 
-/** Live checks call the site's API with no login, so they wait for proof the owner controls the site. */
-function VerifyStep({ project, error }: { project: Project; error?: string }) {
+/** Live checks call the site's API with no login, so they only run on sites the owner proved through Vercel. */
+function VercelStep({ project }: { project: Project }) {
   const host = URL.parse(project.url)?.host ?? project.name;
-  const button = "mt-4 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110";
-  if (project.verifiedDomain) {
-    return <p>Done. Antibody found your verification file on {host}, so every scan runs the live checks too.</p>;
-  }
+  if (project.verifiedDomain) return <p>Done. {host} is on your Vercel account, so every scan runs the live checks too.</p>;
   return (
     <>
-      {!project.repo ? (
-        <p>Connect GitHub first. Antibody then opens a one-file pull request; merging it proves you control both the code and the site, which unlocks the live checks.</p>
-      ) : project.verifyPrUrl ? (
-        <>
-          <p>
-            Merge{" "}
-            <a href={project.verifyPrUrl} className="text-mint hover:underline">
-              the verification pull request
-            </a>
-            . Once your site redeploys, click Check now. After that every scan runs the live checks.
-          </p>
-          <CheckNow projectId={project.id} className={button} />
-        </>
-      ) : (
-        <>
-          <p>Antibody opens a pull request that adds one small file to your site. Merge it, and the live checks unlock. Nothing else in your code changes.</p>
-          <div className="flex flex-wrap gap-3">
-            <form action="/api/github/verify" method="post">
-              <input type="hidden" name="projectId" value={project.id} />
-              <button className={button}>Open the verification pull request</button>
-            </form>
-            <CheckNow projectId={project.id} className={button.replace("bg-mint", "border border-line bg-transparent").replace("text-ink", "text-slate-200")} label="Already merged? Check now" />
-          </div>
-        </>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-red-300">
-          {error}
-        </p>
-      )}
-      <p className="mt-3 text-sm">
-        Hosted on Vercel?{" "}
-        <a href="/api/vercel/connect" className="text-mint hover:underline">
-          Connect Vercel
-        </a>{" "}
-        instead: it proves every site on your Vercel projects at once, no pull request.
+      <p>
+        Live checks call your site&apos;s API with no login, so they only run on sites you own. Connect the Vercel account that hosts {host}: Antibody
+        reads your projects&apos; domains (read only), and this step completes on its own.
       </p>
-      <p className="mt-3 text-xs text-slate-500">
-        Not deploying from GitHub? Add <code className="font-mono">{`<meta name="antibody-verify" content="${host}">`}</code> to your homepage instead.
-      </p>
+      <a href="/api/vercel/connect" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110">
+        Connect Vercel
+      </a>
     </>
   );
 }
-
 
 function Step({ done, title, badge, children }: { done: boolean; title: string; badge?: string; children: React.ReactNode }) {
   return (

@@ -38,7 +38,6 @@ export async function GET(request: Request) {
         d.projects.push(p);
       }
       p.verifiedDomain = true;
-      delete p.verifyPrUrl;
       const install = site.repo ? granted.get(site.repo.toLowerCase()) : undefined;
       if (site.repo && !p.repo) p.repo = site.repo;
       if (install && p.repo?.toLowerCase() === site.repo?.toLowerCase()) p.githubInstallationId = install;

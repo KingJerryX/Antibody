@@ -190,10 +190,8 @@ export interface Project {
   repo?: string;
   /** The Antibody GitHub App installation that grants access to `repo`. */
   githubInstallationId?: number;
-  /** Only verified projects may be actively probed. */
+  /** Only verified projects may be actively probed: proven through Connect Vercel, or on the env allowlist. */
   verifiedDomain: boolean;
-  /** The pull request that adds /.well-known/antibody-verify, while it waits to be merged and deployed. */
-  verifyPrUrl?: string;
   /** GitHub user id of the signed-in owner. Only they can change the project's setup. */
   ownerId?: number;
   ownerLogin?: string;

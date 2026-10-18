@@ -55,7 +55,7 @@ async function Sites({ searchParams }: { searchParams: Search }) {
           const ran = scan?.checks?.filter((c) => c.status !== "not_run").length;
           const steps = [
             p.repo ? `GitHub: ${p.repo}` : "GitHub not connected",
-            p.verifiedDomain ? "Ownership proven" : p.verifyPrUrl ? "Verification PR waiting to merge" : "Ownership not proven",
+            p.verifiedDomain ? "Proven yours through Vercel" : "Not proven yet: connect Vercel",
             scan ? `Last scan: ${scan.checks ? `${ran}/${scan.checks.length} checks run, ` : ""}${scan.findings.length} finding${scan.findings.length === 1 ? "" : "s"}` : "Not scanned yet",
           ];
           return (

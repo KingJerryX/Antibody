@@ -216,11 +216,11 @@ function ChecksCard({ checks, findings, projectId, canFix }: { checks: ScanCheck
       </p>
       <p className="status-line">
         {failed.length ? `${failed.length} failed.` : "None failed."}{" "}
-        {waiting ? `${waiting} didn't run yet: they need you to connect GitHub and prove you own the site.` : "Every check ran."}
+        {waiting ? `${waiting} didn't run yet: they need you to connect GitHub and Vercel.` : "Every check ran."}
       </p>
       {waiting > 0 && (
-        <Link className="btn btn-lime check-cta" href={projectId ? `/connect/${projectId}` : SIGN_IN}>
-          {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Prove you own the site" : "Connect GitHub for the full check"}
+        <Link className="btn btn-lime check-cta" href={!projectId ? SIGN_IN : canFix ? "/api/vercel/connect" : `/connect/${projectId}`}>
+          {!projectId ? "Sign in with GitHub for the full check" : canFix ? "Connect Vercel for live checks" : "Connect GitHub for the full check"}
         </Link>
       )}
       <div className="score-rows">

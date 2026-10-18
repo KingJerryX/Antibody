@@ -149,8 +149,7 @@ describe("scanUrl active gating", () => {
       fetchImpl: impl,
     });
     // only the page itself was fetched — no RLS, route, or rate-limit probes
-    // The page, plus the one public ownership file every scan looks for.
-    expect(calls.every((c) => c.url === "https://notmine.com/" || c.url === "https://notmine.com/.well-known/antibody-verify")).toBe(true);
+    expect(calls.every((c) => c.url === "https://notmine.com/")).toBe(true);
     expect(calls.some((c) => c.url.includes("/rest/v1/"))).toBe(false);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
     expect(r.skipped?.some((s) => s.startsWith("Live checks did not run"))).toBe(true);
@@ -298,29 +297,24 @@ describe("scanUrl active gating", () => {
     expect(r.findings.some((f) => f.title === "Site is served over plain HTTP")).toBe(false);
   });
 
-  it("runs live checks on an unlisted host once the page carries the verify tag", async () => {
+  it("runs live checks on an unlisted host its owner proved through Vercel", async () => {
     const { impl, calls } = mockFetch([
-      {
-        test: (u) => u === "https://mine.example/",
-        body: `<meta name="antibody-verify" content="mine.example"><html></html>`,
-        headers: SECURE_HEADERS,
-      },
+      { test: (u) => u === "https://mine.example/", body: "<html></html>", headers: SECURE_HEADERS },
       { test: (u) => u === "https://mine.example/api/admin", json: { users: 3 } },
     ]);
-    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
+    const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], owned: true, fetchImpl: impl });
     expect(calls.some((c) => c.url === "https://mine.example/api/admin")).toBe(true);
     expect(r.findings.some((f) => f.kind === "unprotected_route")).toBe(true);
     expect(r.skipped ?? []).toEqual([]);
   });
 
-  it("refuses live checks when the owner opt-in has no proof on the site", async () => {
+  it("refuses live checks without proof, even if the page claims ownership", async () => {
     const { impl, calls } = mockFetch([
-      { test: (u) => u === "https://mine.example/", body: "<html></html>", headers: SECURE_HEADERS },
+      { test: (u) => u === "https://mine.example/", body: `<meta name="antibody-verify" content="mine.example"><html></html>`, headers: SECURE_HEADERS },
     ]);
     const r = await scanUrl("https://mine.example/", { projectId: "p1", verifiedDomains: [], fetchImpl: impl });
-    expect(calls.some((c) => c.url.includes("/.well-known/antibody-verify"))).toBe(true);
     expect(calls.some((c) => c.url.includes("/api/"))).toBe(false);
-    expect(r.skipped?.some((s) => s.includes("prove you own"))).toBe(true);
+    expect(r.skipped?.some((s) => s.includes("connect the Vercel project"))).toBe(true);
   });
 
   it("errors cleanly on an unreachable target", async () => {

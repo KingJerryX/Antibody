@@ -10,6 +10,8 @@ export interface ScanOpts {
   projectId: string;
   /** Hosts ("host:port") that may be actively probed. Everything else is passive-only. */
   verifiedDomains: string[];
+  /** The signed-in owner proved this site is theirs (Connect Vercel: a verified domain on their Vercel project). */
+  owned?: boolean;
   /** Injectable for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -93,12 +95,11 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   for (const issue of surface.issues) findings.push(mk(issue.kind, issue.severity, issue.title, issue));
   passed.push(...surface.passed);
 
-  // --- Active: a host on the allowlist, or one whose owner published the verify file (Antibody opens a pull
-  // request for it from the setup page) or meta tag. Checked on every scan: one public GET, like Google's. ---
+  // --- Active: a host on the allowlist, or a site its signed-in owner proved through Connect Vercel. ---
   const allow = new Set(opts.verifiedDomains.map((d) => d.toLowerCase()));
-  const owned = allow.has(target.host.toLowerCase()) || provesOwnership(html, target.host) || (await wellKnown(fetchImpl, origin, target.host));
+  const owned = allow.has(target.host.toLowerCase()) || opts.owned === true;
   if (!owned) {
-    skipped.push("Live checks did not run. They call this site's API with no login, so they wait until you prove you own it on the setup page.");
+    skipped.push("Live checks did not run. They call this site's API with no login, so they wait until you connect the Vercel project that hosts it.");
     return report({ status: "done", findings, passed, skipped });
   }
   // Active probes never follow redirects: a verified host could 3xx us onto a host that isn't verified.
@@ -106,11 +107,12 @@ export async function scanUrl(targetUrl: string, opts: ScanOpts): Promise<ScanRe
   const probe: typeof fetch = (input, init) => fetchImpl(input, { ...init, redirect: "manual" });
 
   // Supabase RLS. Discovery is passive; the raw anon key stays in memory for this probe only.
-  // The Supabase backend is its own host; probe it only if that host is verified too (hard safety rule).
+  // The Supabase backend is its own host: probe it if that host is allowlisted, or if the owner proved this site,
+  // since the project named in an owned site's own code is that owner's backend.
   const { url, anonKey } = findSupabase(blob);
   if (!url || !anonKey) {
     passed.push("supabase_rls");
-  } else if (!allow.has(hostOf(url).toLowerCase())) {
+  } else if (!allow.has(hostOf(url).toLowerCase()) && opts.owned !== true) {
     skipped.push(`Supabase at ${hostOf(url)} was not probed. That host has to be verified before row-level security is tested.`);
   } else {
     const exposed = await supabaseRlsCheck(probe, url, anonKey);
@@ -335,36 +337,4 @@ function expandMap(text: string): string[] {
   } catch {
     return [text];
   }
-}
-
-/** `<meta name="antibody-verify" content="host">` anywhere in the attributes. */
-function provesOwnership(html: string, host: string): boolean {
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
-    if (!/\bname\s*=\s*["']antibody-verify["']/i.test(tag)) continue;
-    const content = tag.match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1];
-    if (content?.toLowerCase() === host.toLowerCase()) return true;
-  }
-  return false;
-}
-
-/** One GET of a public file. Not followed if it redirects. Body must be the host, nothing else. */
-async function wellKnown(fetchImpl: typeof fetch, origin: string, host: string): Promise<boolean> {
-  try {
-    const res = await fetchImpl(new URL("/.well-known/antibody-verify", origin), { redirect: "manual" });
-    if (res.status !== 200) return false;
-    const text = (await res.text()).trim().slice(0, 300);
-    return text.toLowerCase() === host.toLowerCase();
-  } catch {
-    return false;
-  }
-}
-
-/** Same proof a scan accepts (the verify file or meta tag), checked on its own for the setup page's "Check now". */
-export async function siteProvesOwnership(siteUrl: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  const target = URL.parse(siteUrl);
-  if (!target) return false;
-  const get: typeof fetch = (input, init) => fetchImpl(input, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
-  if (await wellKnown(get, target.origin, target.host)) return true;
-  const html = await get(target.href, { redirect: "manual" }).then((r) => r.text()).catch(() => "");
-  return provesOwnership(html, target.host);
 }
